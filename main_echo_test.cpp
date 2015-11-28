@@ -27,12 +27,22 @@ int main(int argc, char* argv[])
         return 1;
     }
 
-
-    ipv4_endpoint endpoint(std::stod(argv[2]), ipv4_address(argv[1]));
-    std::cout << endpoint << std::endl;
-    sysapi::epoll tep;
-    echo_tester tester{tep, endpoint};
-    tester.do_n_steps(100000);
+    try
+    {
+        ipv4_endpoint endpoint(std::stod(argv[2]), ipv4_address(argv[1]));
+        std::cout << endpoint << std::endl;
+        sysapi::epoll tep;
+        echo_tester tester{tep, endpoint};
+        tester.do_n_steps(100000);
+    }
+    catch (std::exception const& e)
+    {
+        std::cerr << "error: " << e.what() << std::endl;
+    }
+    catch (...)
+    {
+        std::cerr << "unknown exception in main" << std::endl;
+    }
 
     return 0;
 }
