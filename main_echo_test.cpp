@@ -33,7 +33,7 @@ int main(int argc, char* argv[])
         std::cout << endpoint << std::endl;
         sysapi::epoll tep;
         echo_tester tester{tep, endpoint};
-        tester.do_n_steps(100000);
+        tester.do_n_steps(1000000);
     }
     catch (std::exception const& e)
     {
