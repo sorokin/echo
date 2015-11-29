@@ -61,17 +61,4 @@ private:
     epoll_registration reg;
 };
 
-//struct eventfd
-//{
-//    typedef std::function<void ()> on_event_t;
-//
-//    eventfd(epoll& ep, on_event_t on_event);
-//    void notify(uint64_t increment = 1);
-//    void set_on_event(on_event_t on_event);
-//
-//private:
-//    on_event_t on_event;
-//    epoll_registration reg;
-//};
-
 #endif // SOCKET_H
