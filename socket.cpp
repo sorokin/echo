@@ -3,6 +3,7 @@
 #include <sys/socket.h>
 #include <errno.h>
 #include <netinet/ip.h>
+#include <fcntl.h>
 
 #include "throw_error.h"
 #include <sys/epoll.h>
@@ -58,6 +59,20 @@ namespace
             throw_error(errno, "eventfd()");
 
         return file_descriptor{res};
+    }
+
+    int get_fd_flags(int fd)
+    {
+        int res = fcntl(fd, F_GETFL, 0);
+        if (res == -1)
+            throw_error(errno, "fcntl(F_GETFL)");
+    }
+
+    void set_fd_flags(int fd, int flags)
+    {
+        int res = fcntl(fd, F_SETFL, flags);
+        if (res == -1)
+            throw_error(errno, "fcntl(F_SETFL)");
     }
 }
 
@@ -140,6 +155,7 @@ client_socket client_socket::connect(sysapi::epoll &ep, const ipv4_endpoint &rem
 {
     file_descriptor fd = make_socket(AF_INET, SOCK_STREAM);
     connect_socket(fd.getfd(), remote.port_net, remote.addr_net);
+    set_fd_flags(fd.getfd(), get_fd_flags(fd.getfd()) | O_NONBLOCK);
     client_socket res{ep, std::move(fd), std::move(on_disconnect)};
     return res;
 }
@@ -152,7 +168,7 @@ void client_socket::update_registration()
 }
 
 server_socket::server_socket(epoll& ep, on_connected_t on_connected)
-    : fd(make_socket(AF_INET, SOCK_STREAM))
+    : fd(make_socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK))
     , on_connected(on_connected)
     , reg(ep, fd.getfd(), EPOLLIN, [this](uint32_t events) {
         assert(events == EPOLLIN);
@@ -163,7 +179,7 @@ server_socket::server_socket(epoll& ep, on_connected_t on_connected)
 }
 
 server_socket::server_socket(epoll& ep, ipv4_endpoint local_endpoint, on_connected_t on_connected)
-    : fd(make_socket(AF_INET, SOCK_STREAM))
+    : fd(make_socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK))
     , on_connected(on_connected)
     , reg(ep, fd.getfd(), EPOLLIN, [this](uint32_t events) {
         assert(events == EPOLLIN);
