@@ -5,6 +5,7 @@
 
 #include <functional>
 #include <cstdint>
+#include <sys/event.h>
 
 namespace sysapi
 {
@@ -25,19 +26,19 @@ namespace sysapi
         void run();
 
     private:
-        void add(int fd, uint32_t events, epoll_registration*);
-        void modify(int fd, uint32_t events, epoll_registration*);
-        void remove(int fd);
+        void add(int fd, int16_t events, epoll_registration*);
+        void modify(int fd, int16_t events, epoll_registration*);
+        void remove(int fd, int16_t events);
 
     private:
-        file_descriptor fd_;
+        int fd_;
 
         friend struct epoll_registration;
     };
 
     struct epoll_registration
     {
-        typedef std::function<void (uint32_t)> callback_t;
+        typedef std::function<void (struct kevent)> callback_t;
 
         epoll_registration();
         epoll_registration(epoll&, int fd, uint32_t events, callback_t callback);
@@ -47,7 +48,7 @@ namespace sysapi
 
         epoll_registration& operator=(epoll_registration);
 
-        void modify(uint32_t new_events);
+        void modify(int16_t new_events);
 
         void swap(epoll_registration& other);
 

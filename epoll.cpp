@@ -1,12 +1,10 @@
 #include "epoll.h"
 
-#include <sys/epoll.h>
-
-#include <array>
 #include <cassert>
 #include <iostream>
 #include <sstream>
 #include <stdexcept>
+
 
 #include "throw_error.h"
 
@@ -14,18 +12,25 @@ using namespace sysapi;
 
 epoll::epoll()
 {
-    int r = ::epoll_create1(EPOLL_CLOEXEC);
+    int r = kqueue();
+    
     if (r == -1)
-        throw_error(errno, "epoll_create1()");
+        throw_error(errno, "kqueue()");
 
     assert(r >= 0);
 
-    fd_.reset(r);
+    fd_ = r;
 }
 
 epoll::epoll(epoll&& rhs)
-    : fd_(std::move(rhs.fd_))
+    : fd_(rhs.fd_)
 {}
+
+void epoll::swap(epoll& other)
+{
+    using std::swap;
+    swap(fd_, other.fd_);
+}
 
 epoll& epoll::operator=(epoll rhs)
 {
@@ -33,41 +38,35 @@ epoll& epoll::operator=(epoll rhs)
     return *this;
 }
 
-void epoll::swap(epoll& other)
-{
-    using ::swap;
-    swap(fd_, other.fd_);
-}
-
 void epoll::run()
 {
     for (;;)
     {
-        std::array<epoll_event, 16> ev;
-
-    again:
-        int r = ::epoll_wait(fd_.getfd(), ev.data(), ev.size(), -1);
+        int const ev_size = 16;
+        struct kevent ev[ev_size];
+        
+        int r = kevent(fd_, NULL, 0, ev, ev_size, NULL);
 
         if (r < 0)
         {
             int err = errno;
 
             if (err == EINTR)
-                goto again;
+                continue;
 
-            throw_error(err, "epoll_wait()");
+            throw_error(err, "kevent()");
         }
 
         assert(r > 0);
         size_t num_events = static_cast<size_t>(r);
-        assert(num_events <= ev.size());
+        assert(num_events <= ev_size);
 
-        for (auto i = ev.begin(); i != ev.begin() + num_events; ++i)
+        for (size_t i = 0; i < r; ++i)
         {
             try
             {
-                epoll_event const& ee = *i;
-                static_cast<epoll_registration*>(ee.data.ptr)->callback(ee.events);
+                struct kevent const& ee = ev[i];
+                static_cast<epoll_registration*>(ee.udata)->callback(ee);
             }
             catch (std::exception const& e)
             {
@@ -81,33 +80,37 @@ void epoll::run()
     }
 }
 
-void epoll::add(int fd, uint32_t events, epoll_registration* reg)
+void epoll::add(int fd, int16_t events, epoll_registration* reg)
 {
-    epoll_event ev = {0, 0};
-    ev.data.ptr = reg;
-    ev.events   = events;
+    struct kevent event;
+    EV_SET(&event, fd, events, EV_ADD, 0, 0, reg);
 
-    int r = ::epoll_ctl(fd_.getfd(), EPOLL_CTL_ADD, fd, &ev);
+    int r = kevent(fd_, &event, 1, NULL, 0, NULL);
     if (r < 0)
-        throw_error(errno, "epoll_ctl(EPOLL_CTL_ADD)");
+        throw_error(errno, "kevent(EV_ADD)");
 }
 
-void epoll::modify(int fd, uint32_t events, epoll_registration* reg)
+void epoll::modify(int fd, int16_t events, epoll_registration* reg)
 {
-    epoll_event ev = {0, 0};
-    ev.data.ptr = reg;
-    ev.events   = events;
-
-    int r = ::epoll_ctl(fd_.getfd(), EPOLL_CTL_MOD, fd, &ev);
+    struct kevent event;
+    EV_SET(&event, fd, events, EV_DELETE, 0, 0, reg);
+    kevent(fd_, &event, 1, NULL, 0, NULL);
+    
+    EV_SET(&event, fd, events, EV_ADD, 0, 0, reg);
+    
+    int r = kevent(fd_, &event, 1, NULL, 0, NULL);
     if (r < 0)
-        throw_error(errno, "epoll_ctl(EPOLL_CTL_MOD)");
+        throw_error(errno, "kevent() MOD");
 }
 
-void epoll::remove(int fd)
+void epoll::remove(int fd, int16_t events)
 {
-    int r = ::epoll_ctl(fd_.getfd(), EPOLL_CTL_DEL, fd, nullptr);
+    struct kevent event;
+    EV_SET(&event, fd, events, EV_DELETE, 0, 0, NULL);
+    
+    int r = kevent(fd_, &event, 1, NULL, 0, NULL);
     if (r < 0)
-        throw_error(errno, "epoll_ctl(EPOLL_CTL_DEL)");
+        throw_error(errno, "kevent(EV_DELETE)");
 }
 
 epoll_registration::epoll_registration()
@@ -149,7 +152,7 @@ epoll_registration& epoll_registration::operator=(epoll_registration rhs)
     return *this;
 }
 
-void epoll_registration::modify(uint32_t new_events)
+void epoll_registration::modify(int16_t new_events)
 {
     assert(ep);
 
@@ -174,7 +177,7 @@ void epoll_registration::clear()
 {
     if (ep)
     {
-        ep->remove(fd);
+        ep->remove(fd, events);
         ep = nullptr;
         fd = -1;
         events = 0;

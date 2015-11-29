@@ -14,7 +14,7 @@ struct client_socket
     client_socket(epoll& ep, file_descriptor fd, on_ready_t on_disconnect);
 
     void set_on_read(on_ready_t on_ready);
-    void set_on_write(on_ready_t on_ready);
+//    void set_on_write(on_ready_t on_ready);
 
     size_t write_some(void const* data, size_t size);
     size_t read_some(void* data, size_t size);
@@ -58,18 +58,17 @@ private:
     epoll_registration reg;
 };
 
-struct eventfd
-{
-    typedef std::function<void ()> on_event_t;
-
-    eventfd(epoll& ep, bool semaphore, on_event_t on_event);
-    void notify(uint64_t increment = 1);
-    void set_on_event(on_event_t on_event);
-
-private:
-    file_descriptor fd;
-    on_event_t on_event;
-    epoll_registration reg;
-};
+//struct eventfd
+//{
+//    typedef std::function<void ()> on_event_t;
+//
+//    eventfd(epoll& ep, on_event_t on_event);
+//    void notify(uint64_t increment = 1);
+//    void set_on_event(on_event_t on_event);
+//
+//private:
+//    on_event_t on_event;
+//    epoll_registration reg;
+//};
 
 #endif // SOCKET_H

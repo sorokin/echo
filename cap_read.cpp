@@ -23,9 +23,9 @@ void read(weak_file_descriptor fdc, void* data, size_t size)
 std::string read_string(weak_file_descriptor fd, std::size_t size)
 {
     // yes, it is slow, but it is the fastest standard compliant way I know to read data into a string
-    std::vector<char> tmp(size);
-    read(fd, tmp.data(), size);
-    return std::string{tmp.begin(), tmp.end()};
+    char buff[size];
+    read(fd, buff, size);
+    return std::string{buff, size};
 }
 
 size_t read_some(weak_file_descriptor fdc, void* data, size_t size)
