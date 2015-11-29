@@ -7,7 +7,7 @@ int main(int argc, char* argv[])
 {
     if (argc != 3)
     {
-        std::cerr << "usage: " << argv[0] << " <ip-address> <port>\n";
+        std::cerr << "usage: " << argv[0] << " hostname port\n";
         return 1;
     }
 
