@@ -1,23 +1,7 @@
 #include <iostream>
-#include "file_descriptor.h"
-
-#include "socket.h"
-#include <sys/socket.h>
-
-#include <unistd.h>
-#include <fcntl.h>
-#include <sys/types.h>
-#include <stdio.h>
-#include <sys/mman.h>
 
 #include "epoll.h"
 #include "echo_tester.h"
-
-#include <map>
-#include <memory>
-#include <functional>
-#include <vector>
-
 
 int main(int argc, char* argv[])
 {
