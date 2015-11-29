@@ -5,8 +5,6 @@
 #include <netinet/ip.h>
 
 #include "throw_error.h"
-//#include <sys/epoll.h>
-//#include <sys/eventfd.h>
 #include "cap_write.h"
 #include "cap_read.h"
 
@@ -50,12 +48,6 @@ namespace
         if (res == -1)
             throw_error(errno, "connect()");
     }
-
-//    struct kevent create_event()
-//    {
-//        struct kevent event;
-//        return event;
-//    }
 }
 
 client_socket::client_socket(sysapi::epoll &ep, file_descriptor fd, on_ready_t on_disconnect)
@@ -185,25 +177,3 @@ client_socket server_socket::accept(client_socket::on_ready_t on_disconnect) con
     
     return client_socket{reg.get_epoll(), {res}, std::move(on_disconnect)};
 }
-
-//eventfd::eventfd(epoll& ep, on_event_t on_event)
-//    : event(create_eventfd())
-//    , on_event(on_event)
-//    , reg(ep, fd.getfd(), 0, [this] (struct kevent event) {
-//        assert((event.filter & EVFILT_READ) == 0);
-//        uint64_t tmp;
-//        read(this->fd.getfd(), &tmp, sizeof tmp);
-//        this->on_event();
-//    })
-//{}
-//
-//void eventfd::notify(uint64_t increment)
-//{
-//    write(fd, &increment, sizeof increment);
-//}
-//
-//void eventfd::set_on_event(eventfd::on_event_t on_event)
-//{
-//    this->on_event = on_event;
-//    reg.modify(on_event ? EVFILT_READ: 0);
-//}
