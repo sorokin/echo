@@ -35,17 +35,44 @@ struct echo_server
 
         void update()
         {
+#ifdef __APPLE__
+            assert(start_offset == 0);
+            socket.set_on_read([this] {
+                end_offset = socket.read_some(buf, sizeof buf);
+                assert(start_offset == 0);
+                start_offset += socket.write_some(buf + start_offset, end_offset - start_offset);
+                if (start_offset == end_offset)
+                {
+                    start_offset = 0;
+                    end_offset = 0;
+                }
+            });
+#else
+            if (end_offset == 0)
+            {
                 assert(start_offset == 0);
                 socket.set_on_read([this] {
                     end_offset = socket.read_some(buf, sizeof buf);
                     assert(start_offset == 0);
+                    update();
+                });
+                socket.set_on_write(client_socket::on_ready_t{});
+            }
+            else
+            {
+                assert(start_offset < end_offset);
+                socket.set_on_read(client_socket::on_ready_t{});
+                socket.set_on_write([this] {
                     start_offset += socket.write_some(buf + start_offset, end_offset - start_offset);
                     if (start_offset == end_offset)
                     {
                         start_offset = 0;
                         end_offset = 0;
+                        update();
                     }
                 });
+            }
+#endif
         }
 
     private:

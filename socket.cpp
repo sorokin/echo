@@ -5,8 +5,10 @@
 #include <netinet/ip.h>
 
 #include "throw_error.h"
-//#include <sys/epoll.h>
-//#include <sys/eventfd.h>
+#ifndef __APPLE__
+#include <sys/epoll.h>
+#include <sys/eventfd.h>
+#endif
 #include "cap_write.h"
 #include "cap_read.h"
 
@@ -50,12 +52,6 @@ namespace
         if (res == -1)
             throw_error(errno, "connect()");
     }
-
-//    struct kevent create_event()
-//    {
-//        struct kevent event;
-//        return event;
-//    }
 }
 
 client_socket::client_socket(sysapi::epoll &ep, file_descriptor fd, on_ready_t on_disconnect)
@@ -65,13 +61,19 @@ client_socket::client_socket(sysapi::epoll &ep, file_descriptor fd, on_ready_t o
 client_socket::impl::impl(sysapi::epoll &ep, file_descriptor fd, on_ready_t on_disconnect)
     : ep(ep)
     , fd(std::move(fd))
+#ifdef __APPLE__
     , reg(ep, this->fd.getfd(), EVFILT_READ, [this](struct kevent event) {
         assert(event.filter & EVFILT_READ);
+#else
+    , reg(ep, this->fd.getfd(), 0, [this](uint32_t events) {
+        assert((events & ~(EPOLLIN | EPOLLOUT | EPOLLRDHUP | EPOLLERR | EPOLLHUP)) == 0);
+#endif
         bool is_destroyed = false;
         assert(destroyed == nullptr);
         destroyed = &is_destroyed;
         try
         {
+#ifdef __APPLE__
             if (event.filter & EVFILT_READ && event.flags & EV_EOF && event.data == 0)
             {
                 this->on_disconnect();
@@ -84,6 +86,29 @@ client_socket::impl::impl(sysapi::epoll &ep, file_descriptor fd, on_ready_t on_d
                 if (is_destroyed)
                     return;
             }
+        
+#else
+            if ((events & EPOLLRDHUP)
+                || (events & EPOLLERR)
+                || (events & EPOLLHUP))
+            {
+                this->on_disconnect();
+                if (is_destroyed)
+                    return;
+            }
+            if (events & EPOLLIN)
+            {
+                this->on_read_ready();
+                if (is_destroyed)
+                    return;
+            }
+            if (events & EPOLLOUT)
+            {
+                this->on_write_ready();
+                if (is_destroyed)
+                    return;
+            }
+#endif
         }
         catch (...)
         {
@@ -108,13 +133,13 @@ void client_socket::set_on_read(on_ready_t on_ready)
     pimpl->on_read_ready = on_ready;
     update_registration();
 }
-
-//void client_socket::set_on_write(client_socket::on_ready_t on_ready)
-//{
-//    pimpl->on_write_ready = on_ready;
-//    update_registration();
-//}
-
+#ifndef __APPLE__
+void client_socket::set_on_write(client_socket::on_ready_t on_ready)
+{
+    pimpl->on_write_ready = on_ready;
+    update_registration();
+}
+#endif
 size_t client_socket::write_some(const void *data, size_t size)
 {
     return ::write_some(pimpl->fd, data, size);
@@ -135,14 +160,25 @@ client_socket client_socket::connect(sysapi::epoll &ep, const ipv4_endpoint &rem
 
 void client_socket::update_registration()
 {
+#ifdef __APPLE__
     pimpl->reg.modify(EVFILT_READ);
+#else
+    pimpl->reg.modify((pimpl->on_read_ready ? EPOLLIN : 0)
+                      | (pimpl->on_write_ready ? EPOLLOUT: 0)
+                      | EPOLLRDHUP);
+#endif
 }
 
 server_socket::server_socket(epoll& ep, on_connected_t on_connected)
     : fd(make_socket(AF_INET, SOCK_STREAM))
     , on_connected(on_connected)
+#ifdef __APPLE__
     , reg(ep, fd.getfd(), EVFILT_READ, [this](struct kevent event) {
         assert(event.filter & EVFILT_READ);
+#else
+    , reg(ep, fd.getfd(), EPOLLIN, [this](uint32_t events) {
+        assert(events == EPOLLIN);
+#endif
         this->on_connected();
     })
 {
@@ -152,8 +188,13 @@ server_socket::server_socket(epoll& ep, on_connected_t on_connected)
 server_socket::server_socket(epoll& ep, ipv4_endpoint local_endpoint, on_connected_t on_connected)
     : fd(make_socket(AF_INET, SOCK_STREAM))
     , on_connected(on_connected)
-    , reg(ep, fd.getfd(), EVFILT_READ, [this](struct kevent event) {
-        assert(event.filter & EVFILT_READ);
+#ifdef __APPLE__
+        , reg(ep, fd.getfd(), EVFILT_READ, [this](struct kevent event) {
+            assert(event.filter & EVFILT_READ);
+#else
+        , reg(ep, fd.getfd(), EPOLLIN, [this](uint32_t events) {
+            assert(events == EPOLLIN);
+#endif
         this->on_connected();
     })
 {
@@ -174,6 +215,7 @@ ipv4_endpoint server_socket::local_endpoint() const
 
 client_socket server_socket::accept(client_socket::on_ready_t on_disconnect) const
 {
+#ifdef __APPLE__
     struct sockaddr addr;
     socklen_t socklen = sizeof(addr);
     int res = ::accept(fd.getfd(), &addr, &socklen);
@@ -183,27 +225,11 @@ client_socket server_socket::accept(client_socket::on_ready_t on_disconnect) con
     const int set = 1;
     ::setsockopt(res, SOL_SOCKET, SO_NOSIGPIPE, &set, sizeof(set));  // NOSIGPIPE FOR SEND
     
+#else
+    int res = ::accept4(fd.getfd(), nullptr, nullptr, SOCK_NONBLOCK | SOCK_CLOEXEC);
+    if (res == -1)
+        throw_error(errno, "accept4()");
+
+#endif
     return client_socket{reg.get_epoll(), {res}, std::move(on_disconnect)};
 }
-
-//eventfd::eventfd(epoll& ep, on_event_t on_event)
-//    : event(create_eventfd())
-//    , on_event(on_event)
-//    , reg(ep, fd.getfd(), 0, [this] (struct kevent event) {
-//        assert((event.filter & EVFILT_READ) == 0);
-//        uint64_t tmp;
-//        read(this->fd.getfd(), &tmp, sizeof tmp);
-//        this->on_event();
-//    })
-//{}
-//
-//void eventfd::notify(uint64_t increment)
-//{
-//    write(fd, &increment, sizeof increment);
-//}
-//
-//void eventfd::set_on_event(eventfd::on_event_t on_event)
-//{
-//    this->on_event = on_event;
-//    reg.modify(on_event ? EVFILT_READ: 0);
-//}
