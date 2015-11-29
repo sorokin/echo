@@ -19,10 +19,14 @@ namespace
             return "EACCES";
         case EINVAL:
             return "EINVAL";
+        case EMFILE:
+            return "EMFILE";
         case EADDRINUSE:
             return "EADDRINUSE";
         case ECONNRESET:
             return "ECONNRESET";
+        case ECONNREFUSED:
+            return "ECONNREFUSED";
         }
 
         return "<unknown error>";
