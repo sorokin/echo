@@ -21,12 +21,12 @@ void echo_server::connection::update()
             assert(start_offset == 0);
             update();
         });
-        socket.set_on_write(client_socket::on_ready_t{});
+        socket.set_on_write([this]{});  // otherwise exception will be throwen
     }
     else
     {
         assert(start_offset < end_offset);
-        socket.set_on_read(client_socket::on_ready_t{});
+        socket.set_on_read([this]{});
         socket.set_on_write([this] {
             start_offset += socket.write_some(buf + start_offset, end_offset - start_offset);
             if (start_offset == end_offset)

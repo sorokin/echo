@@ -14,11 +14,7 @@ struct client_socket
     client_socket(epoll& ep, file_descriptor fd, on_ready_t on_disconnect);
 
     void set_on_read(on_ready_t on_ready);
-#ifndef __APPLE__
     void set_on_write(on_ready_t on_ready);
-#else
-    void set_on_write(on_ready_t on_ready);
-#endif
     size_t write_some(void const* data, size_t size);
     size_t read_some(void* data, size_t size);
 

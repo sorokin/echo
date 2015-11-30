@@ -13,17 +13,39 @@
 #include "cap_write.h"
 #include "cap_read.h"
 
+
+#include <iostream>
+
 namespace
 {
+#ifdef __APPLE__
+    int get_fd_flags(int fd);
+    void set_fd_flags(int fd, int flags);
+    
+    file_descriptor make_socket(int domain, int type, bool nonblock)
+    {
+        int fd = ::socket(domain, type, 0);
+        if (fd == -1)
+            throw_error(errno, "socket()");
+        
+        if (nonblock) {
+            set_fd_flags(fd, get_fd_flags(fd) | O_NONBLOCK);
+        }
+        
+        return file_descriptor{fd};
+    }
+    
+#else
     file_descriptor make_socket(int domain, int type)
     {
         int fd = ::socket(domain, type, 0);
         if (fd == -1)
             throw_error(errno, "socket()");
-
+        
         return file_descriptor{fd};
     }
-
+    
+#endif
     void start_listen(int fd)
     {
         int res = ::listen(fd, SOMAXCONN);
@@ -54,20 +76,12 @@ namespace
             throw_error(errno, "connect()");
     }
 
-    file_descriptor create_eventfd(bool semaphore)
-    {
-        int res = ::eventfd(0, (semaphore ? EFD_SEMAPHORE : 0) | EFD_CLOEXEC | EFD_NONBLOCK);
-        if (res == -1)
-            throw_error(errno, "eventfd()");
-
-        return file_descriptor{res};
-    }
-
     int get_fd_flags(int fd)
     {
         int res = fcntl(fd, F_GETFL, 0);
         if (res == -1)
             throw_error(errno, "fcntl(F_GETFL)");
+        return res;
     }
 
     void set_fd_flags(int fd, int flags)
@@ -86,8 +100,8 @@ client_socket::impl::impl(sysapi::epoll &ep, file_descriptor fd, on_ready_t on_d
     : ep(ep)
     , fd(std::move(fd))
 #ifdef __APPLE__
-    , reg(ep, this->fd.getfd(), EVFILT_READ, [this](struct kevent event) {
-        assert(event.filter & EVFILT_READ);
+    , reg(ep, this->fd.getfd(), {EVFILT_READ}, [this](struct kevent event) {
+        assert(event.filter == EVFILT_READ || event.filter == EVFILT_WRITE);
 #else
     , reg(ep, this->fd.getfd(), 0, [this](uint32_t events) {
         assert((events & ~(EPOLLIN | EPOLLOUT | EPOLLRDHUP | EPOLLERR | EPOLLHUP)) == 0);
@@ -98,15 +112,21 @@ client_socket::impl::impl(sysapi::epoll &ep, file_descriptor fd, on_ready_t on_d
         try
         {
 #ifdef __APPLE__
-            if (event.filter & EVFILT_READ && event.flags & EV_EOF && event.data == 0)
+            if ((event.filter == EVFILT_READ && event.flags & EV_EOF) || (event.filter == EVFILT_WRITE && event.flags & EV_EOF))
             {
                 this->on_disconnect();
                 if (is_destroyed)
                     return;
             }
-            if (event.filter & EVFILT_READ)
+            if (event.filter == EVFILT_READ)
             {
                 this->on_read_ready();
+                if (is_destroyed)
+                    return;
+            }
+            if (event.filter == EVFILT_WRITE)
+            {
+                this->on_write_ready();
                 if (is_destroyed)
                     return;
             }
@@ -139,6 +159,7 @@ client_socket::impl::impl(sysapi::epoll &ep, file_descriptor fd, on_ready_t on_d
             destroyed = nullptr;
             throw;
         }
+        
         destroyed = nullptr;
     })
     , on_disconnect(std::move(on_disconnect))
@@ -157,13 +178,13 @@ void client_socket::set_on_read(on_ready_t on_ready)
     pimpl->on_read_ready = on_ready;
     update_registration();
 }
-#ifndef __APPLE__
+
 void client_socket::set_on_write(client_socket::on_ready_t on_ready)
 {
     pimpl->on_write_ready = on_ready;
     update_registration();
 }
-#endif
+
 size_t client_socket::write_some(const void *data, size_t size)
 {
     return ::write_some(pimpl->fd, data, size);
@@ -176,7 +197,11 @@ size_t client_socket::read_some(void* data, size_t size)
 
 client_socket client_socket::connect(sysapi::epoll &ep, const ipv4_endpoint &remote, on_ready_t on_disconnect)
 {
+#ifdef __APPLE__
+    file_descriptor fd = make_socket(AF_INET, SOCK_STREAM, false);
+#else
     file_descriptor fd = make_socket(AF_INET, SOCK_STREAM);
+#endif
     connect_socket(fd.getfd(), remote.port_net, remote.addr_net);
     set_fd_flags(fd.getfd(), get_fd_flags(fd.getfd()) | O_NONBLOCK);
     client_socket res{ep, std::move(fd), std::move(on_disconnect)};
@@ -186,7 +211,9 @@ client_socket client_socket::connect(sysapi::epoll &ep, const ipv4_endpoint &rem
 void client_socket::update_registration()
 {
 #ifdef __APPLE__
-    pimpl->reg.modify(EVFILT_READ);
+    
+    pimpl->reg.modify({EVFILT_READ, EVFILT_WRITE});
+    
 #else
     pimpl->reg.modify((pimpl->on_read_ready ? EPOLLIN : 0)
                       | (pimpl->on_write_ready ? EPOLLOUT: 0)
@@ -195,12 +222,14 @@ void client_socket::update_registration()
 }
 
 server_socket::server_socket(epoll& ep, on_connected_t on_connected)
-    : fd(make_socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK))
-    , on_connected(on_connected)
 #ifdef __APPLE__
-    , reg(ep, fd.getfd(), EVFILT_READ, [this](struct kevent event) {
+    : fd(make_socket(AF_INET, SOCK_STREAM, true))
+    , on_connected(on_connected)
+    , reg(ep, fd.getfd(), {EVFILT_READ}, [this](struct kevent event) {
         assert(event.filter & EVFILT_READ);
 #else
+    : fd(make_socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK))
+    , on_connected(on_connected)
     , reg(ep, fd.getfd(), EPOLLIN, [this](uint32_t events) {
         assert(events == EPOLLIN);
 #endif
@@ -211,12 +240,14 @@ server_socket::server_socket(epoll& ep, on_connected_t on_connected)
 }
 
 server_socket::server_socket(epoll& ep, ipv4_endpoint local_endpoint, on_connected_t on_connected)
-    : fd(make_socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK))
-    , on_connected(on_connected)
 #ifdef __APPLE__
-        , reg(ep, fd.getfd(), EVFILT_READ, [this](struct kevent event) {
+        : fd(make_socket(AF_INET, SOCK_STREAM, true))
+        , on_connected(on_connected)
+        , reg(ep, fd.getfd(), {EVFILT_READ}, [this](struct kevent event) {
             assert(event.filter & EVFILT_READ);
 #else
+        : fd(make_socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK))
+        , on_connected(on_connected)
         , reg(ep, fd.getfd(), EPOLLIN, [this](uint32_t events) {
             assert(events == EPOLLIN);
 #endif

@@ -7,6 +7,7 @@
 #include <cstdint>
 #ifdef __APPLE__
 #include <sys/event.h>
+#include <list>
 
 namespace sysapi
 {
@@ -28,12 +29,13 @@ namespace sysapi
 
     private:
         void add(int fd, int16_t events, epoll_registration*);
-        void modify(int fd, int16_t events, epoll_registration*);
+        void modify(int fd, std::list<int16_t> events, epoll_registration*);
         void remove(int fd, int16_t events);
 
     private:
         int fd_;
-
+        bool event_deleted = false;
+        
         friend struct epoll_registration;
     };
 
@@ -42,14 +44,14 @@ namespace sysapi
         typedef std::function<void (struct kevent)> callback_t;
 
         epoll_registration();
-        epoll_registration(epoll&, int fd, uint32_t events, callback_t callback);
+        epoll_registration(epoll&, int fd, std::list<int16_t> events, callback_t callback);
         epoll_registration(epoll_registration const&) = delete;
         epoll_registration(epoll_registration&&);
         ~epoll_registration();
 
         epoll_registration& operator=(epoll_registration);
 
-        void modify(int16_t new_events);
+        void modify(std::list<int16_t> new_events);
 
         void swap(epoll_registration& other);
 
@@ -62,7 +64,7 @@ namespace sysapi
     private:
         epoll* ep;
         int fd;
-        uint32_t events;
+        std::list<int16_t> events;
         callback_t callback;
 
         friend struct epoll;
