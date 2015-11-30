@@ -157,13 +157,13 @@ void client_socket::set_on_read(on_ready_t on_ready)
     pimpl->on_read_ready = on_ready;
     update_registration();
 }
-#ifndef __APPLE__
+
 void client_socket::set_on_write(client_socket::on_ready_t on_ready)
 {
     pimpl->on_write_ready = on_ready;
     update_registration();
 }
-#endif
+
 size_t client_socket::write_some(const void *data, size_t size)
 {
     return ::write_some(pimpl->fd, data, size);
