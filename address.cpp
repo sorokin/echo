@@ -4,6 +4,7 @@
 #include <netinet/in.h>
 
 #include <sstream>
+#include <stdexcept>
 
 ipv4_address::ipv4_address(uint32_t addr_net)
     : addr_net(addr_net)
@@ -12,7 +13,13 @@ ipv4_address::ipv4_address(uint32_t addr_net)
 ipv4_address::ipv4_address(const std::string &text)
 {
     in_addr tmp{};
-    inet_pton(AF_INET, text.c_str(), &tmp);
+    int res = inet_pton(AF_INET, text.c_str(), &tmp);
+    if (res == 0)
+    {
+        std::stringstream ss;
+        ss << '\'' << text << "' is not a valid ip address";
+        throw std::runtime_error(ss.str());
+    }
     addr_net = tmp.s_addr;
 }
 

@@ -16,6 +16,7 @@ add_library(common STATIC
 
 add_executable(echo_server
     main_echo_server.cpp
+    echo_server.cpp
 )
 
 target_link_libraries(echo_server common)

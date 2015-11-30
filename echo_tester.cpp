@@ -7,21 +7,34 @@ echo_tester::connection::connection(epoll &ep, ipv4_endpoint const& remote, uint
     , number(number)
     , sent(0)
     , received(0)
+    , no_disconnect(false)
+    , no_read(false)
 {}
 
 void echo_tester::connection::do_send()
 {
     size_t size = rand() % 10000;
+    size_t sent_total = 0;
 
-    std::cout << "sending " << size << " bytes over connection " << number << std::endl;
+    std::cout << "sending " << size << " bytes over connection " << number;
     uint8_t buf[2000];
 
-    while (size != 0)
+    for (;;)
     {
-        size_t to_send = std::min(size, sizeof buf);
+        if (size == sent_total)
+        {
+            std::cout << std::endl;
+            break;
+        }
+        size_t to_send = std::min(size - sent_total, sizeof buf);
         fill_buffer(buf, to_send);
-        socket.write_some(buf, to_send);
-        size -= to_send;
+        size_t sent = socket.write_some(buf, to_send);
+        sent_total += sent;
+        if (sent != to_send)
+        {
+            std::cout << " (" << sent_total << " bytes are sent)" << std::endl;
+            break;
+        }
     }
 }
 
@@ -56,8 +69,9 @@ bool echo_tester::connection::do_receive()
 
 void echo_tester::connection::fill_buffer(uint8_t *buf, size_t size)
 {
+    uint8_t val = (uint8_t)sent;
     for (size_t i = 0; i != size; ++i)
-        *buf++ = (uint8_t)sent++;
+        *buf++ = val;
 }
 
 bool echo_tester::connection::check_buffer(uint8_t *buf, size_t size)
@@ -85,30 +99,39 @@ echo_tester::echo_tester(epoll &ep, ipv4_endpoint remote_endpoint)
     : ep(ep)
     , remote_endpoint(remote_endpoint)
     , next_connection_number(0)
+    , desired_number_of_connections(3)
 {}
 
 bool echo_tester::do_step()
 {
-    size_t i = rand() % 5;
+    size_t i = rand() % (desired_number_of_connections * 2);
     if (i < connections.size())
     {
-        size_t act = rand() % 11;
-        if (act == 10)
+        auto& c = *connections[i];
+        size_t act = rand() % 112;
+        if (!c.no_disconnect && act == 111)
+        {
+            ++desired_number_of_connections;
+            c.no_disconnect = true;
+        }
+        else if (!c.no_read && act == 110)
+        {
+            c.no_read = true;
+        }
+        else if (!c.no_disconnect && act >= 100)
         {
             //std::cout << "destroy connection " << connections[i]->get_number() << std::endl;
             std::swap(connections[i], connections.back());
             connections.pop_back();
         }
-        else if (act < 5)
+        else if (!c.no_read && act >= 50)
         {
-            auto& c = *connections[i];
-            c.do_send();
+            if (!c.do_receive())
+                return false;
         }
         else
         {
-            auto& c = *connections[i];
-            if (!c.do_receive())
-                return false;
+            c.do_send();
         }
     }
     else

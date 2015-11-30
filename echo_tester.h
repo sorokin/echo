@@ -27,6 +27,9 @@ struct echo_tester
         uint32_t number;
         uint64_t sent;
         uint64_t received;
+    public:
+        bool no_disconnect;
+        bool no_read;
     };
 
     echo_tester(epoll& ep, ipv4_endpoint remote_endpoint);
@@ -38,6 +41,7 @@ private:
     ipv4_endpoint remote_endpoint;
     std::vector<std::unique_ptr<connection>> connections;
     uint32_t next_connection_number;
+    size_t desired_number_of_connections;
 };
 
 #endif // ECHO_TESTER_H
