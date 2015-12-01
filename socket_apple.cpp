@@ -1,4 +1,4 @@
-#include "socket.h"
+#include "socket_apple.h"
 
 #include <sys/socket.h>
 #include <errno.h>
@@ -13,15 +13,22 @@
 
 namespace
 {
-    file_descriptor make_socket(int domain, int type)
+    int get_fd_flags(int fd);
+    void set_fd_flags(int fd, int flags);
+    
+    file_descriptor make_socket(int domain, int type, bool nonblock)
     {
         int fd = ::socket(domain, type, 0);
         if (fd == -1)
             throw_error(errno, "socket()");
-
+        
+        if (nonblock) {
+            set_fd_flags(fd, get_fd_flags(fd) | O_NONBLOCK);
+        }
+        
         return file_descriptor{fd};
     }
-
+    
     void start_listen(int fd)
     {
         int res = ::listen(fd, SOMAXCONN);
@@ -52,20 +59,12 @@ namespace
             throw_error(errno, "connect()");
     }
 
-    file_descriptor create_eventfd(bool semaphore)
-    {
-        int res = ::eventfd(0, (semaphore ? EFD_SEMAPHORE : 0) | EFD_CLOEXEC | EFD_NONBLOCK);
-        if (res == -1)
-            throw_error(errno, "eventfd()");
-
-        return file_descriptor{res};
-    }
-
     int get_fd_flags(int fd)
     {
         int res = fcntl(fd, F_GETFL, 0);
         if (res == -1)
             throw_error(errno, "fcntl(F_GETFL)");
+        return res;
     }
 
     void set_fd_flags(int fd, int flags)
@@ -83,28 +82,26 @@ client_socket::client_socket(sysapi::epoll &ep, file_descriptor fd, on_ready_t o
 client_socket::impl::impl(sysapi::epoll &ep, file_descriptor fd, on_ready_t on_disconnect)
     : ep(ep)
     , fd(std::move(fd))
-    , reg(ep, this->fd.getfd(), 0, [this](uint32_t events) {
-        assert((events & ~(EPOLLIN | EPOLLOUT | EPOLLRDHUP | EPOLLERR | EPOLLHUP)) == 0);
+    , reg(ep, this->fd.getfd(), {EVFILT_READ}, [this](struct kevent event) {
+        assert(event.filter == EVFILT_READ || event.filter == EVFILT_WRITE);
         bool is_destroyed = false;
         assert(destroyed == nullptr);
         destroyed = &is_destroyed;
         try
         {
-            if ((events & EPOLLRDHUP)
-             || (events & EPOLLERR)
-             || (events & EPOLLHUP))
+            if ((event.filter == EVFILT_READ && event.flags & EV_EOF) || (event.filter == EVFILT_WRITE && event.flags & EV_EOF))
             {
                 this->on_disconnect();
                 if (is_destroyed)
                     return;
             }
-            if (events & EPOLLIN)
+            if (event.filter == EVFILT_READ)
             {
                 this->on_read_ready();
                 if (is_destroyed)
                     return;
             }
-            if (events & EPOLLOUT)
+            if (event.filter == EVFILT_WRITE)
             {
                 this->on_write_ready();
                 if (is_destroyed)
@@ -116,6 +113,7 @@ client_socket::impl::impl(sysapi::epoll &ep, file_descriptor fd, on_ready_t on_d
             destroyed = nullptr;
             throw;
         }
+        
         destroyed = nullptr;
     })
     , on_disconnect(std::move(on_disconnect))
@@ -153,7 +151,7 @@ size_t client_socket::read_some(void* data, size_t size)
 
 client_socket client_socket::connect(sysapi::epoll &ep, const ipv4_endpoint &remote, on_ready_t on_disconnect)
 {
-    file_descriptor fd = make_socket(AF_INET, SOCK_STREAM);
+    file_descriptor fd = make_socket(AF_INET, SOCK_STREAM, false);
     connect_socket(fd.getfd(), remote.port_net, remote.addr_net);
     set_fd_flags(fd.getfd(), get_fd_flags(fd.getfd()) | O_NONBLOCK);
     client_socket res{ep, std::move(fd), std::move(on_disconnect)};
@@ -162,16 +160,14 @@ client_socket client_socket::connect(sysapi::epoll &ep, const ipv4_endpoint &rem
 
 void client_socket::update_registration()
 {
-    pimpl->reg.modify((pimpl->on_read_ready ? EPOLLIN : 0)
-                    | (pimpl->on_write_ready ? EPOLLOUT: 0)
-                    | EPOLLRDHUP);
+    pimpl->reg.modify({EVFILT_READ, EVFILT_WRITE});
 }
 
 server_socket::server_socket(epoll& ep, on_connected_t on_connected)
-    : fd(make_socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK))
+    : fd(make_socket(AF_INET, SOCK_STREAM, true))
     , on_connected(on_connected)
-    , reg(ep, fd.getfd(), EPOLLIN, [this](uint32_t events) {
-        assert(events == EPOLLIN);
+    , reg(ep, fd.getfd(), {EVFILT_READ}, [this](struct kevent event) {
+        assert(event.filter & EVFILT_READ);
         this->on_connected();
     })
 {
@@ -179,10 +175,10 @@ server_socket::server_socket(epoll& ep, on_connected_t on_connected)
 }
 
 server_socket::server_socket(epoll& ep, ipv4_endpoint local_endpoint, on_connected_t on_connected)
-    : fd(make_socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK))
+    : fd(make_socket(AF_INET, SOCK_STREAM, true))
     , on_connected(on_connected)
-    , reg(ep, fd.getfd(), EPOLLIN, [this](uint32_t events) {
-        assert(events == EPOLLIN);
+    , reg(ep, fd.getfd(), {EVFILT_READ}, [this](struct kevent event) {
+        assert(event.filter & EVFILT_READ);
         this->on_connected();
     })
 {
@@ -203,31 +199,14 @@ ipv4_endpoint server_socket::local_endpoint() const
 
 client_socket server_socket::accept(client_socket::on_ready_t on_disconnect) const
 {
-    int res = ::accept4(fd.getfd(), nullptr, nullptr, SOCK_NONBLOCK | SOCK_CLOEXEC);
+    struct sockaddr addr;
+    socklen_t socklen = sizeof(addr);
+    int res = ::accept(fd.getfd(), &addr, &socklen);
     if (res == -1)
-        throw_error(errno, "accept4()");
-
+        throw_error(errno, "accept()");
+  
+    const int set = 1;
+    ::setsockopt(res, SOL_SOCKET, SO_NOSIGPIPE, &set, sizeof(set));  // NOSIGPIPE FOR SEND
+    
     return client_socket{reg.get_epoll(), {res}, std::move(on_disconnect)};
-}
-
-eventfd::eventfd(epoll& ep, bool semaphore, on_event_t on_event)
-    : fd(create_eventfd(semaphore))
-    , on_event(on_event)
-    , reg(ep, fd.getfd(), 0, [this] (uint32_t events) {
-        assert((events & ~EPOLLIN) == 0);
-        uint64_t tmp;
-        read(this->fd.getfd(), &tmp, sizeof tmp);
-        this->on_event();
-    })
-{}
-
-void eventfd::notify(uint64_t increment)
-{
-    write(fd, &increment, sizeof increment);
-}
-
-void eventfd::set_on_event(eventfd::on_event_t on_event)
-{
-    this->on_event = on_event;
-    reg.modify(on_event ? EPOLLIN : 0);
 }

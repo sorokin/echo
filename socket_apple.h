@@ -1,9 +1,9 @@
-#ifndef SOCKET_H
-#define SOCKET_H
+#ifndef SOCKET_APPLE_H
+#define SOCKET_APPLE_H
 
 #include "file_descriptor.h"
 #include "address.h"
-#include "epoll.h"
+#include "kqueue.hpp"
 #include <memory>
 #include <cstdint>
 
@@ -58,18 +58,4 @@ private:
     epoll_registration reg;
 };
 
-struct eventfd
-{
-    typedef std::function<void ()> on_event_t;
-
-    eventfd(epoll& ep, bool semaphore, on_event_t on_event);
-    void notify(uint64_t increment = 1);
-    void set_on_event(on_event_t on_event);
-
-private:
-    file_descriptor fd;
-    on_event_t on_event;
-    epoll_registration reg;
-};
-
-#endif // SOCKET_H
+#endif // SOCKET_APPLE_H
