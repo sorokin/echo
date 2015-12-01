@@ -19,6 +19,7 @@ struct client_socket
 
     void set_on_read(on_ready_t on_ready);
     void set_on_write(on_ready_t on_ready);
+
     size_t write_some(void const* data, size_t size);
     size_t read_some(void* data, size_t size);
 
