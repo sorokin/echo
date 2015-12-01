@@ -3,7 +3,11 @@
 
 #include "file_descriptor.h"
 #include "address.h"
+#ifdef __APPLE__
+#include "kqueue.hpp"
+#else
 #include "epoll.h"
+#endif
 #include <memory>
 #include <cstdint>
 

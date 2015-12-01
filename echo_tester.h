@@ -1,7 +1,11 @@
 #ifndef ECHO_TESTER_H
 #define ECHO_TESTER_H
 
+#ifdef __APPLE__
+#include "kqueue.hpp"
+#else
 #include "epoll.h"
+#endif
 #include "address.h"
 #include "socket.h"
 #include <vector>

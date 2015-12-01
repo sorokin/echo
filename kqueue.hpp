@@ -1,10 +1,12 @@
-#ifndef EPOLL_H
-#define EPOLL_H
+#ifndef kqueue_hpp
+#define kqueue_hpp
 
 #include "file_descriptor.h"
 
 #include <functional>
 #include <cstdint>
+#include <sys/event.h>
+#include <list>
 
 namespace sysapi
 {
@@ -25,29 +27,30 @@ namespace sysapi
         void run();
         
     private:
-        void add(int fd, uint32_t events, epoll_registration*);
-        void modify(int fd, uint32_t events, epoll_registration*);
-        void remove(int fd);
+        void add(int fd, int16_t events, epoll_registration*);
+        void modify(int fd, std::list<int16_t> events, epoll_registration*);
+        void remove(int fd, int16_t events);
         
     private:
-        file_descriptor fd_;
+        int fd_;
+        bool event_deleted = false;
         
         friend struct epoll_registration;
     };
     
     struct epoll_registration
     {
-        typedef std::function<void (uint32_t)> callback_t;
+        typedef std::function<void (struct kevent)> callback_t;
         
         epoll_registration();
-        epoll_registration(epoll&, int fd, uint32_t events, callback_t callback);
+        epoll_registration(epoll&, int fd, std::list<int16_t> events, callback_t callback);
         epoll_registration(epoll_registration const&) = delete;
         epoll_registration(epoll_registration&&);
         ~epoll_registration();
         
         epoll_registration& operator=(epoll_registration);
         
-        void modify(uint32_t new_events);
+        void modify(std::list<int16_t> new_events);
         
         void swap(epoll_registration& other);
         
@@ -60,7 +63,7 @@ namespace sysapi
     private:
         epoll* ep;
         int fd;
-        uint32_t events;
+        std::list<int16_t> events;
         callback_t callback;
         
         friend struct epoll;

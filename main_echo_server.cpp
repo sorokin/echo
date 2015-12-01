@@ -1,6 +1,10 @@
 #include <iostream>
 
+#ifdef __APPLE__
+#include "kqueue.hpp"
+#else
 #include "epoll.h"
+#endif
 #include "echo_server.h"
 
 int main()
