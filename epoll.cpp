@@ -61,7 +61,7 @@ void epoll::run()
         assert(r > 0);
         size_t num_events = static_cast<size_t>(r);
         assert(num_events <= ev.size());
-        
+
         for (auto i = ev.begin(); i != ev.begin() + num_events; ++i)
         {
             try

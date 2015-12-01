@@ -104,7 +104,6 @@ echo_tester::echo_tester(epoll &ep, ipv4_endpoint remote_endpoint)
 
 bool echo_tester::do_step()
 {
-    
     size_t i = rand() % (desired_number_of_connections * 2);
     if (i < connections.size())
     {

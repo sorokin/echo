@@ -13,9 +13,6 @@
 #include "cap_write.h"
 #include "cap_read.h"
 
-
-#include <iostream>
-
 namespace
 {
 #ifdef __APPLE__
@@ -41,10 +38,10 @@ namespace
         int fd = ::socket(domain, type, 0);
         if (fd == -1)
             throw_error(errno, "socket()");
-        
+
         return file_descriptor{fd};
     }
-    
+
 #endif
     void start_listen(int fd)
     {
@@ -216,8 +213,8 @@ void client_socket::update_registration()
     
 #else
     pimpl->reg.modify((pimpl->on_read_ready ? EPOLLIN : 0)
-                      | (pimpl->on_write_ready ? EPOLLOUT: 0)
-                      | EPOLLRDHUP);
+                    | (pimpl->on_write_ready ? EPOLLOUT: 0)
+                    | EPOLLRDHUP);
 #endif
 }
 
@@ -241,15 +238,15 @@ server_socket::server_socket(epoll& ep, on_connected_t on_connected)
 
 server_socket::server_socket(epoll& ep, ipv4_endpoint local_endpoint, on_connected_t on_connected)
 #ifdef __APPLE__
-        : fd(make_socket(AF_INET, SOCK_STREAM, true))
-        , on_connected(on_connected)
-        , reg(ep, fd.getfd(), {EVFILT_READ}, [this](struct kevent event) {
-            assert(event.filter & EVFILT_READ);
+    : fd(make_socket(AF_INET, SOCK_STREAM, true))
+    , on_connected(on_connected)
+    , reg(ep, fd.getfd(), {EVFILT_READ}, [this](struct kevent event) {
+        assert(event.filter & EVFILT_READ);
 #else
-        : fd(make_socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK))
-        , on_connected(on_connected)
-        , reg(ep, fd.getfd(), EPOLLIN, [this](uint32_t events) {
-            assert(events == EPOLLIN);
+    : fd(make_socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK))
+    , on_connected(on_connected)
+    , reg(ep, fd.getfd(), EPOLLIN, [this](uint32_t events) {
+        assert(events == EPOLLIN);
 #endif
         this->on_connected();
     })
