@@ -11,7 +11,7 @@ IF(UNIX)
         cap_read.cpp
         cap_write.cpp
         kqueue.cpp
-        socket.cpp
+        socket_apple.cpp
         throw_error.cpp
         )
     ELSE(APPLE)

@@ -3,11 +3,12 @@
 
 #ifdef __APPLE__
 #include "kqueue.hpp"
+#include "socket_apple.h"
 #else
 #include "epoll.h"
+#include "socket.h"
 #endif
 #include "address.h"
-#include "socket.h"
 #include <vector>
 
 struct echo_tester

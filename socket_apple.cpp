@@ -6,8 +6,6 @@
 #include <fcntl.h>
 
 #include "throw_error.h"
-#include <sys/epoll.h>
-#include <sys/eventfd.h>
 #include "cap_write.h"
 #include "cap_read.h"
 

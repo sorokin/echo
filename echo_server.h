@@ -2,7 +2,11 @@
 #define ECHO_SERVER_H
 
 #include <map>
+#ifdef __APPLE__
+#include "socket_apple.h"
+#else
 #include "socket.h"
+#endif
 
 struct echo_server
 {
