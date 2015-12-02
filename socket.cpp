@@ -77,13 +77,24 @@ namespace
 }
 
 client_socket::client_socket(sysapi::epoll &ep, file_descriptor fd, on_ready_t on_disconnect)
-    : pimpl(new impl(ep, std::move(fd), std::move(on_disconnect)))
+    : client_socket(ep, std::move(fd), std::move(on_disconnect), on_ready_t{}, on_ready_t{})
 {}
 
-client_socket::impl::impl(sysapi::epoll &ep, file_descriptor fd, on_ready_t on_disconnect)
+client_socket::client_socket(epoll& ep,
+                             file_descriptor fd,
+                             on_ready_t on_disconnect,
+                             on_ready_t on_read_ready,
+                             on_ready_t on_write_ready)
+    : pimpl(new impl(ep, std::move(fd), std::move(on_disconnect), std::move(on_read_ready), std::move(on_write_ready)))
+{}
+
+client_socket::impl::impl(sysapi::epoll &ep, file_descriptor fd, on_ready_t on_disconnect, on_ready_t on_read_ready, on_ready_t on_write_ready)
     : ep(ep)
     , fd(std::move(fd))
-    , reg(ep, this->fd.getfd(), 0, [this](uint32_t events) {
+    , on_disconnect(std::move(on_disconnect))
+    , on_read_ready(std::move(on_read_ready))
+    , on_write_ready(std::move(on_write_ready))
+    , reg(ep, this->fd.getfd(), calculate_flags(), [this](uint32_t events) {
         assert((events & ~(EPOLLIN | EPOLLOUT | EPOLLRDHUP | EPOLLERR | EPOLLHUP)) == 0);
         bool is_destroyed = false;
         assert(destroyed == nullptr);
@@ -118,9 +129,9 @@ client_socket::impl::impl(sysapi::epoll &ep, file_descriptor fd, on_ready_t on_d
         }
         destroyed = nullptr;
     })
-    , on_disconnect(std::move(on_disconnect))
     , destroyed(nullptr)
-{}
+{
+}
 
 client_socket::impl::~impl()
 {
@@ -128,17 +139,37 @@ client_socket::impl::~impl()
         *destroyed = true;
 }
 
+void client_socket::impl::update_registration()
+{
+    reg.modify(calculate_flags());
+}
+
+int client_socket::impl::calculate_flags() const
+{
+    return (on_read_ready  ? EPOLLIN : 0)
+         | (on_write_ready ? EPOLLOUT: 0)
+         | EPOLLRDHUP;
+}
+
+void client_socket::set_on_read_write(on_ready_t on_read_ready,
+                                      on_ready_t on_write_ready)
+{
+    pimpl->on_read_ready = std::move(on_read_ready);
+    pimpl->on_write_ready = std::move(on_write_ready);
+    pimpl->update_registration();
+}
+
 void client_socket::set_on_read(on_ready_t on_ready)
 {
     // TODO: not exception safe
-    pimpl->on_read_ready = on_ready;
-    update_registration();
+    pimpl->on_read_ready = std::move(on_ready);
+    pimpl->update_registration();
 }
 
 void client_socket::set_on_write(client_socket::on_ready_t on_ready)
 {
-    pimpl->on_write_ready = on_ready;
-    update_registration();
+    pimpl->on_write_ready = std::move(on_ready);
+    pimpl->update_registration();
 }
 
 size_t client_socket::write_some(const void *data, size_t size)
@@ -158,13 +189,6 @@ client_socket client_socket::connect(sysapi::epoll &ep, const ipv4_endpoint &rem
     set_fd_flags(fd.getfd(), get_fd_flags(fd.getfd()) | O_NONBLOCK);
     client_socket res{ep, std::move(fd), std::move(on_disconnect)};
     return res;
-}
-
-void client_socket::update_registration()
-{
-    pimpl->reg.modify((pimpl->on_read_ready ? EPOLLIN : 0)
-                    | (pimpl->on_write_ready ? EPOLLOUT: 0)
-                    | EPOLLRDHUP);
 }
 
 server_socket::server_socket(epoll& ep, on_connected_t on_connected)
@@ -208,6 +232,17 @@ client_socket server_socket::accept(client_socket::on_ready_t on_disconnect) con
         throw_error(errno, "accept4()");
 
     return client_socket{reg.get_epoll(), {res}, std::move(on_disconnect)};
+}
+
+client_socket server_socket::accept(client_socket::on_ready_t on_disconnect,
+                                    client_socket::on_ready_t on_read_ready,
+                                    client_socket::on_ready_t on_write_ready) const
+{
+    int res = ::accept4(fd.getfd(), nullptr, nullptr, SOCK_NONBLOCK | SOCK_CLOEXEC);
+    if (res == -1)
+        throw_error(errno, "accept4()");
+
+    return client_socket{reg.get_epoll(), {res}, std::move(on_disconnect), std::move(on_read_ready), std::move(on_write_ready)};
 }
 
 eventfd::eventfd(epoll& ep, bool semaphore, on_event_t on_event)
