@@ -21,8 +21,12 @@ namespace
             return "EINVAL";
         case EMFILE:
             return "EMFILE";
+        case EPIPE:
+            return "EPIPE";
         case EADDRINUSE:
             return "EADDRINUSE";
+        case EADDRNOTAVAIL:
+            return "EADDRNOTAVAIL";
         case ECONNRESET:
             return "ECONNRESET";
         case ECONNREFUSED:
