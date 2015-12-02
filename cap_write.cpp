@@ -3,17 +3,18 @@
 #include "throw_error.h"
 #include <sstream>
 #include <stdexcept>
+#include <sys/socket.h>
 
 size_t write_some(weak_file_descriptor fdc, void const* data, std::size_t size)
 {
     int fd = fdc.getfd();
 
     assert(fd != -1);
-    ssize_t res = ::write(fd, data, size);
+    ssize_t res = ::send(fd, data, size, MSG_NOSIGNAL);
     if (res == -1)
     {
         int err = errno;
-        if (err == EAGAIN || err == ECONNRESET)
+        if (err == EAGAIN || err == ECONNRESET || err == EPIPE)
             return 0;
         throw_error(err, "write()");
     }
