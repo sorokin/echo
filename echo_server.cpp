@@ -4,38 +4,64 @@ echo_server::connection::connection(echo_server *parent)
     : parent(parent)
     , socket(parent->ss.accept([this] {
         this->parent->connections.erase(this);
-    }))
+    }, [this] {
+        process(true);
+    }, client_socket::on_ready_t{}))
     , start_offset()
     , end_offset()
+{}
+
+void echo_server::connection::try_read()
 {
-    update();
+    assert(start_offset == 0);
+    assert(end_offset == 0);
+    end_offset = socket.read_some(buf, sizeof buf);
 }
 
-void echo_server::connection::update()
+void echo_server::connection::try_write()
 {
-    if (end_offset == 0)
+    assert(start_offset < end_offset);
+    assert(end_offset != 0);
+
+    start_offset += socket.write_some(buf + start_offset, end_offset - start_offset);
+    if (start_offset == end_offset)
     {
-        assert(start_offset == 0);
-        socket.set_on_read([this] {
-            end_offset = socket.read_some(buf, sizeof buf);
-            assert(start_offset == 0);
-            update();
-        });
-        socket.set_on_write(client_socket::on_ready_t{});
+        start_offset = 0;
+        end_offset = 0;
     }
-    else
+}
+
+void echo_server::connection::process(bool read)
+{
+    bool incomplete_read = false;
+
+    if (!read)
+        goto process_write;
+
+    for (;;)
     {
-        assert(start_offset < end_offset);
-        socket.set_on_read(client_socket::on_ready_t{});
-        socket.set_on_write([this] {
-            start_offset += socket.write_some(buf + start_offset, end_offset - start_offset);
-            if (start_offset == end_offset)
-            {
-                start_offset = 0;
-                end_offset = 0;
-                update();
-            }
-        });
+        try_read();
+        if (end_offset == 0)
+        {
+            socket.set_on_read_write([this] { process(true); }, client_socket::on_ready_t{});
+            return;
+        }
+
+        incomplete_read = (end_offset != sizeof buf);
+
+    process_write:
+        try_write();
+        if (end_offset != 0)
+        {
+            socket.set_on_read_write(client_socket::on_ready_t{}, [this] { process(false); });
+            return;
+        }
+
+        if (incomplete_read)
+        {
+            socket.set_on_read_write([this] { process(true); }, client_socket::on_ready_t{});
+            return;
+        }
     }
 }
 

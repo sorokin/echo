@@ -9,7 +9,11 @@ struct echo_server
     struct connection
     {
         connection(echo_server* parent);
-        void update();
+
+        void try_read();
+        void try_write();
+
+        void process(bool read);
 
     private:
         echo_server* parent;
