@@ -99,7 +99,8 @@ echo_tester::echo_tester(epoll &ep, ipv4_endpoint remote_endpoint)
     : ep(ep)
     , remote_endpoint(remote_endpoint)
     , next_connection_number(0)
-    , desired_number_of_connections(3)
+    , desired_number_of_connections(4)
+    , number_of_permanent_connections(0)
 {}
 
 bool echo_tester::do_step()
@@ -109,9 +110,9 @@ bool echo_tester::do_step()
     {
         auto& c = *connections[i];
         size_t act = rand() % 112;
-        if (!c.no_disconnect && act == 111)
+        if (number_of_permanent_connections < 2 && act == 111)
         {
-            ++desired_number_of_connections;
+            ++number_of_permanent_connections;
             c.no_disconnect = true;
         }
         else if (!c.no_read && act == 110)
