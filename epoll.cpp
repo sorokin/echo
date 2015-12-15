@@ -35,7 +35,7 @@ epoll& epoll::operator=(epoll rhs)
 
 void epoll::swap(epoll& other)
 {
-    using ::swap;
+    using std::swap;
     swap(fd_, other.fd_);
 }
 
