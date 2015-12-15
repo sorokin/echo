@@ -6,8 +6,6 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -g")
 
 add_library(common STATIC
     address.cpp
-    cap_read.cpp
-    cap_write.cpp
     epoll.cpp
     pipe.cpp
     socket.cpp

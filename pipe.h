@@ -2,8 +2,6 @@
 #define PIPE_H
 
 #include "file_descriptor.h"
-#include "cap_read.h"
-#include "cap_write.h"
 
 struct pipe_pair
 {
