@@ -28,9 +28,10 @@ void echo_tester::connection::do_send()
         }
         size_t to_send = std::min(size - sent_total, sizeof buf);
         fill_buffer(buf, to_send);
-        size_t sent = socket.write_some(buf, to_send);
-        sent_total += sent;
-        if (sent != to_send)
+        size_t sent_now = socket.write_some(buf, to_send);
+        sent += sent_now;
+        sent_total += sent_now;
+        if (sent_now != to_send)
         {
             std::cout << " (" << sent_total << " bytes are sent)" << std::endl;
             break;
@@ -71,7 +72,7 @@ void echo_tester::connection::fill_buffer(uint8_t *buf, size_t size)
 {
     uint8_t val = (uint8_t)sent;
     for (size_t i = 0; i != size; ++i)
-        *buf++ = val;
+        *buf++ = val++;
 }
 
 bool echo_tester::connection::check_buffer(uint8_t *buf, size_t size)
