@@ -37,9 +37,3 @@ void write(weak_file_descriptor fdc, const void *data, std::size_t size)
         throw std::runtime_error(ss.str());
     }
 }
-
-
-void write(weak_file_descriptor fd, std::string const& str)
-{
-    write(fd, str.data(), str.size());
-}

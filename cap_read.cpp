@@ -9,25 +9,6 @@
 
 #include "throw_error.h"
 
-void read(weak_file_descriptor fdc, void* data, size_t size)
-{
-    size_t bytes_read = read_some(fdc, data, size);
-    if (bytes_read != size)
-    {
-        std::stringstream ss;
-        ss << "incomplete read, requested: " << size << ", read: " << bytes_read;
-        throw std::runtime_error(ss.str());
-    }
-}
-
-std::string read_string(weak_file_descriptor fd, std::size_t size)
-{
-    // yes, it is slow, but it is the fastest standard compliant way I know to read data into a string
-    std::vector<char> tmp(size);
-    read(fd, tmp.data(), size);
-    return std::string{tmp.begin(), tmp.end()};
-}
-
 size_t read_some(weak_file_descriptor fdc, void* data, size_t size)
 {
     int fd = fdc.getfd();
