@@ -66,6 +66,8 @@ namespace
         int res = fcntl(fd, F_GETFL, 0);
         if (res == -1)
             throw_error(errno, "fcntl(F_GETFL)");
+
+        return res;
     }
 
     void set_fd_flags(int fd, int flags)
