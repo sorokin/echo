@@ -18,6 +18,7 @@ struct echo_server
     private:
         echo_server* parent;
         client_socket socket;
+        timer_element timer;
         size_t start_offset;
         size_t end_offset;
         char buf[1500];
@@ -33,6 +34,7 @@ private:
     void on_new_connection();
 
 private:
+    epoll& ep;
     server_socket ss;
     std::map<connection*, std::unique_ptr<connection>> connections;
 };

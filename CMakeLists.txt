@@ -12,6 +12,7 @@ add_library(common STATIC
     pipe.cpp
     socket.cpp
     throw_error.cpp
+    timer.cpp
 )
 
 add_executable(echo_server
