@@ -25,7 +25,6 @@ struct echo_server
     };
 
     echo_server(epoll& ep);
-
     echo_server(epoll& ep, ipv4_endpoint const& local_endpoint);
 
     ipv4_endpoint local_endpoint() const;
