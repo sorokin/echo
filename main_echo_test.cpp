@@ -17,7 +17,7 @@ int main(int argc, char* argv[])
             return 0;
         }
 
-        ipv4_endpoint endpoint(std::stod("52100"), ipv4_address("0.0.0.0"));
+        ipv4_endpoint endpoint(std::stod(argv[2]), ipv4_address(argv[1]));
         std::cout << endpoint << std::endl;
         sysapi::epoll tep;
         echo_tester tester{tep, endpoint};
