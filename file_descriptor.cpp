@@ -121,7 +121,11 @@ size_t write_some(weak_file_descriptor fdc, void const* data, std::size_t size)
     int fd = fdc.getfd();
 
     assert(fd != -1);
+#ifdef __APPLE__
     ssize_t res = ::send(fd, data, size, 0);
+#else
+    ssize_t res = ::send(fd, data, size, MSG_NOSIGNAL);
+#endif
     if (res == -1)
     {
         int err = errno;
