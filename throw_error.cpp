@@ -41,8 +41,7 @@ void throw_error [[noreturn]] (int err, char const* action)
 {
     std::stringstream ss;
     ss << action << " failed, error: " << error_enum_name(err);
-    char tmp[2048];
-    char const* err_msg = strerror_r(err, tmp, sizeof tmp);
+    char const* err_msg = strerror(err);
     ss << " (" << err << ", " << err_msg << ")";
     throw std::runtime_error(ss.str());
 }
