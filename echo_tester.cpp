@@ -28,9 +28,10 @@ void echo_tester::connection::do_send()
         }
         size_t to_send = std::min(size - sent_total, sizeof buf);
         fill_buffer(buf, to_send);
-        size_t sent = socket.write_some(buf, to_send);
-        sent_total += sent;
-        if (sent != to_send)
+        size_t sent_now = socket.write_some(buf, to_send);
+        sent += sent_now;
+        sent_total += sent_now;
+        if (sent_now != to_send)
         {
             std::cout << " (" << sent_total << " bytes are sent)" << std::endl;
             break;
@@ -71,7 +72,7 @@ void echo_tester::connection::fill_buffer(uint8_t *buf, size_t size)
 {
     uint8_t val = (uint8_t)sent;
     for (size_t i = 0; i != size; ++i)
-        *buf++ = val;
+        *buf++ = val++;
 }
 
 bool echo_tester::connection::check_buffer(uint8_t *buf, size_t size)
@@ -99,7 +100,8 @@ echo_tester::echo_tester(epoll &ep, ipv4_endpoint remote_endpoint)
     : ep(ep)
     , remote_endpoint(remote_endpoint)
     , next_connection_number(0)
-    , desired_number_of_connections(3)
+    , desired_number_of_connections(4)
+    , number_of_permanent_connections(0)
 {}
 
 bool echo_tester::do_step()
@@ -109,9 +111,9 @@ bool echo_tester::do_step()
     {
         auto& c = *connections[i];
         size_t act = rand() % 112;
-        if (!c.no_disconnect && act == 111)
+        if (number_of_permanent_connections < 2 && act == 111)
         {
-            ++desired_number_of_connections;
+            ++number_of_permanent_connections;
             c.no_disconnect = true;
         }
         else if (!c.no_read && act == 110)

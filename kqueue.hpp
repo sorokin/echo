@@ -2,6 +2,7 @@
 #define kqueue_hpp
 
 #include "file_descriptor.h"
+#include "timer.h"
 
 #include <functional>
 #include <cstdint>
@@ -25,15 +26,19 @@ namespace sysapi
         void swap(epoll& other);
         
         void run();
+        timer& get_timer();
         
     private:
-        void add(int fd, int16_t events, epoll_registration*);
-        void modify(int fd, std::list<int16_t> events, epoll_registration*);
-        void remove(int fd, int16_t events);
+        void add(int fd, int16_t event, epoll_registration*);
+        void modify(int fd, int16_t event, epoll_registration*);
+        void remove(int fd, int16_t event);
+        
+        int run_timers_calculate_timeout();
         
     private:
-        int fd_;
-        bool event_deleted = false;
+        file_descriptor fd_;
+        timer timer_;
+        std::list<std::pair<int, int16_t>> deleted_events;
         
         friend struct epoll_registration;
     };

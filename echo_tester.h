@@ -47,6 +47,7 @@ private:
     std::vector<std::unique_ptr<connection>> connections;
     uint32_t next_connection_number;
     size_t desired_number_of_connections;
+    size_t number_of_permanent_connections;
 };
 
 #endif // ECHO_TESTER_H

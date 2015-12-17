@@ -6,23 +6,17 @@
 #include <fcntl.h>
 
 #include "throw_error.h"
-#include "cap_write.h"
-#include "cap_read.h"
 
 namespace
 {
     int get_fd_flags(int fd);
     void set_fd_flags(int fd, int flags);
     
-    file_descriptor make_socket(int domain, int type, bool nonblock)
+    file_descriptor make_socket(int domain, int type)
     {
         int fd = ::socket(domain, type, 0);
         if (fd == -1)
             throw_error(errno, "socket()");
-        
-        if (nonblock) {
-            set_fd_flags(fd, get_fd_flags(fd) | O_NONBLOCK);
-        }
         
         return file_descriptor{fd};
     }
@@ -74,13 +68,25 @@ namespace
 }
 
 client_socket::client_socket(sysapi::epoll &ep, file_descriptor fd, on_ready_t on_disconnect)
-    : pimpl(new impl(ep, std::move(fd), std::move(on_disconnect)))
+: client_socket(ep, std::move(fd), std::move(on_disconnect), on_ready_t{}, on_ready_t{})
 {}
 
-client_socket::impl::impl(sysapi::epoll &ep, file_descriptor fd, on_ready_t on_disconnect)
+client_socket::client_socket(epoll& ep,
+                             file_descriptor fd,
+                             on_ready_t on_disconnect,
+                             on_ready_t on_read_ready,
+                             on_ready_t on_write_ready)
+: pimpl(new impl(ep, std::move(fd), std::move(on_disconnect), std::move(on_read_ready), std::move(on_write_ready)))
+{}
+
+client_socket::impl::impl(sysapi::epoll &ep, file_descriptor fd, on_ready_t on_disconnect, on_ready_t on_read_ready, on_ready_t on_write_ready)
     : ep(ep)
     , fd(std::move(fd))
-    , reg(ep, this->fd.getfd(), {EVFILT_READ}, [this](struct kevent event) {
+    , on_disconnect(std::move(on_disconnect))
+    , on_read_ready(std::move(on_read_ready))
+    , on_write_ready(std::move(on_write_ready))
+    , reg(ep, this->fd.getfd(), {EVFILT_READ}, [this](struct kevent event)
+        {
         assert(event.filter == EVFILT_READ || event.filter == EVFILT_WRITE);
         bool is_destroyed = false;
         assert(destroyed == nullptr);
@@ -114,7 +120,6 @@ client_socket::impl::impl(sysapi::epoll &ep, file_descriptor fd, on_ready_t on_d
         
         destroyed = nullptr;
     })
-    , on_disconnect(std::move(on_disconnect))
     , destroyed(nullptr)
 {}
 
@@ -124,17 +129,41 @@ client_socket::impl::~impl()
         *destroyed = true;
 }
 
+void client_socket::impl::update_registration()
+{
+    reg.modify(calculate_flags());
+}
+
+std::list<int16_t> client_socket::impl::calculate_flags() const
+{
+    std::list<int16_t> ev_list;
+    if (on_read_ready)
+        ev_list.push_back(EVFILT_READ);
+    if (on_write_ready)
+        ev_list.push_back(EVFILT_WRITE);
+    
+    return ev_list;
+}
+
+void client_socket::set_on_read_write(on_ready_t on_read_ready,
+                                      on_ready_t on_write_ready)
+{
+    pimpl->on_read_ready = std::move(on_read_ready);
+    pimpl->on_write_ready = std::move(on_write_ready);
+    pimpl->update_registration();
+}
+
 void client_socket::set_on_read(on_ready_t on_ready)
 {
     // TODO: not exception safe
     pimpl->on_read_ready = on_ready;
-    update_registration();
+    pimpl->update_registration();
 }
 
 void client_socket::set_on_write(client_socket::on_ready_t on_ready)
 {
     pimpl->on_write_ready = on_ready;
-    update_registration();
+    pimpl->update_registration();
 }
 
 size_t client_socket::write_some(const void *data, size_t size)
@@ -149,37 +178,34 @@ size_t client_socket::read_some(void* data, size_t size)
 
 client_socket client_socket::connect(sysapi::epoll &ep, const ipv4_endpoint &remote, on_ready_t on_disconnect)
 {
-    file_descriptor fd = make_socket(AF_INET, SOCK_STREAM, false);
+    file_descriptor fd = make_socket(AF_INET, SOCK_STREAM);
     connect_socket(fd.getfd(), remote.port_net, remote.addr_net);
     set_fd_flags(fd.getfd(), get_fd_flags(fd.getfd()) | O_NONBLOCK);
     client_socket res{ep, std::move(fd), std::move(on_disconnect)};
     return res;
 }
 
-void client_socket::update_registration()
-{
-    pimpl->reg.modify({EVFILT_READ, EVFILT_WRITE});
-}
-
 server_socket::server_socket(epoll& ep, on_connected_t on_connected)
-    : fd(make_socket(AF_INET, SOCK_STREAM, true))
+    : fd(make_socket(AF_INET, SOCK_STREAM))
     , on_connected(on_connected)
     , reg(ep, fd.getfd(), {EVFILT_READ}, [this](struct kevent event) {
-        assert(event.filter & EVFILT_READ);
+        assert(event.filter == EVFILT_READ);
         this->on_connected();
     })
 {
+    set_fd_flags(fd.getfd(), get_fd_flags(fd.getfd()) | O_NONBLOCK);
     start_listen(fd.getfd());
 }
 
 server_socket::server_socket(epoll& ep, ipv4_endpoint local_endpoint, on_connected_t on_connected)
-    : fd(make_socket(AF_INET, SOCK_STREAM, true))
+    : fd(make_socket(AF_INET, SOCK_STREAM))
     , on_connected(on_connected)
     , reg(ep, fd.getfd(), {EVFILT_READ}, [this](struct kevent event) {
         assert(event.filter & EVFILT_READ);
         this->on_connected();
     })
 {
+    set_fd_flags(fd.getfd(), get_fd_flags(fd.getfd()) | O_NONBLOCK);
     bind_socket(fd.getfd(), local_endpoint.port_net, local_endpoint.addr_net);
     start_listen(fd.getfd());
 }
@@ -197,14 +223,30 @@ ipv4_endpoint server_socket::local_endpoint() const
 
 client_socket server_socket::accept(client_socket::on_ready_t on_disconnect) const
 {
-    struct sockaddr addr;
-    socklen_t socklen = sizeof(addr);
-    int res = ::accept(fd.getfd(), &addr, &socklen);
+    int res = ::accept(fd.getfd(), nullptr, nullptr);
     if (res == -1)
         throw_error(errno, "accept()");
+    
+    set_fd_flags(fd.getfd(), get_fd_flags(fd.getfd()) | O_NONBLOCK);
   
     const int set = 1;
     ::setsockopt(res, SOL_SOCKET, SO_NOSIGPIPE, &set, sizeof(set));  // NOSIGPIPE FOR SEND
     
     return client_socket{reg.get_epoll(), {res}, std::move(on_disconnect)};
+}
+
+client_socket server_socket::accept(client_socket::on_ready_t on_disconnect,
+                                    client_socket::on_ready_t on_read_ready,
+                                    client_socket::on_ready_t on_write_ready) const
+{
+    int res = ::accept(fd.getfd(), nullptr, nullptr);
+    if (res == -1)
+        throw_error(errno, "accept4()");
+    
+    set_fd_flags(fd.getfd(), get_fd_flags(fd.getfd()) | O_NONBLOCK);
+    
+    const int set = 1;
+    ::setsockopt(res, SOL_SOCKET, SO_NOSIGPIPE, &set, sizeof(set));  // NOSIGPIPE FOR SEND
+    
+    return client_socket{reg.get_epoll(), {res}, std::move(on_disconnect), std::move(on_read_ready), std::move(on_write_ready)};
 }

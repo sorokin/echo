@@ -2,6 +2,7 @@
 #define EPOLL_H
 
 #include "file_descriptor.h"
+#include "timer.h"
 
 #include <functional>
 #include <cstdint>
@@ -23,14 +24,18 @@ namespace sysapi
         void swap(epoll& other);
 
         void run();
+        timer& get_timer();
 
     private:
         void add(int fd, uint32_t events, epoll_registration*);
         void modify(int fd, uint32_t events, epoll_registration*);
         void remove(int fd);
 
+        int run_timers_calculate_timeout();
+
     private:
         file_descriptor fd_;
+        timer timer_;
 
         friend struct epoll_registration;
     };

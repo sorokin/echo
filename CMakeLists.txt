@@ -8,24 +8,23 @@ IF(UNIX)
     IF(APPLE)
     add_library(common STATIC
         address.cpp
-        cap_read.cpp
-        cap_write.cpp
         kqueue.cpp
         socket_apple.cpp
         throw_error.cpp
+        timer.cpp
+        file_descriptor.cpp   
         )
     ELSE(APPLE)
     add_library(common STATIC
         address.cpp
-        cap_read.cpp
-        cap_write.cpp
         epoll.cpp
         socket.cpp
         throw_error.cpp
+        timer.cpp
+        file_descriptor.cpp
         )
     ENDIF(APPLE)
 ENDIF(UNIX)
-
 
 add_executable(echo_server
     main_echo_server.cpp

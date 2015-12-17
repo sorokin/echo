@@ -9,15 +9,15 @@
 
 int main(int argc, char* argv[])
 {
-    if (argc != 3)
-    {
-        std::cerr << "usage: " << argv[0] << " hostname port\n";
-        return 1;
-    }
-
     try
     {
-        ipv4_endpoint endpoint(std::stod(argv[2]), ipv4_address(argv[1]));
+        if (argc != 3)
+        {
+            std::cerr << "usage: " << argv[0] << " hostname port\n";
+            return 0;
+        }
+
+        ipv4_endpoint endpoint(std::stod("52100"), ipv4_address("0.0.0.0"));
         std::cout << endpoint << std::endl;
         sysapi::epoll tep;
         echo_tester tester{tep, endpoint};
@@ -26,11 +26,13 @@ int main(int argc, char* argv[])
     catch (std::exception const& e)
     {
         std::cerr << "error: " << e.what() << std::endl;
+        return EXIT_FAILURE;
     }
     catch (...)
     {
         std::cerr << "unknown exception in main" << std::endl;
+        return EXIT_FAILURE;
     }
 
-    return 0;
+    return EXIT_SUCCESS;
 }

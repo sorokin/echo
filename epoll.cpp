@@ -35,7 +35,7 @@ epoll& epoll::operator=(epoll rhs)
 
 void epoll::swap(epoll& other)
 {
-    using ::swap;
+    using std::swap;
     swap(fd_, other.fd_);
 }
 
@@ -46,7 +46,8 @@ void epoll::run()
         std::array<epoll_event, 16> ev;
 
     again:
-        int r = ::epoll_wait(fd_.getfd(), ev.data(), ev.size(), -1);
+        int timeout = run_timers_calculate_timeout();
+        int r = ::epoll_wait(fd_.getfd(), ev.data(), ev.size(), timeout);
 
         if (r < 0)
         {
@@ -57,6 +58,9 @@ void epoll::run()
 
             throw_error(err, "epoll_wait()");
         }
+
+        if (r == 0)
+            goto again;
 
         assert(r > 0);
         size_t num_events = static_cast<size_t>(r);
@@ -79,6 +83,11 @@ void epoll::run()
             }
         }
     }
+}
+
+timer& epoll::get_timer()
+{
+    return timer_;
 }
 
 void epoll::add(int fd, uint32_t events, epoll_registration* reg)
@@ -108,6 +117,20 @@ void epoll::remove(int fd)
     int r = ::epoll_ctl(fd_.getfd(), EPOLL_CTL_DEL, fd, nullptr);
     if (r < 0)
         throw_error(errno, "epoll_ctl(EPOLL_CTL_DEL)");
+}
+
+int epoll::run_timers_calculate_timeout()
+{
+    if (timer_.empty())
+        return -1;
+
+    timer::clock_t::time_point now = timer::clock_t::now();
+    timer_.notify(now);
+
+    if (timer_.empty())
+        return -1;
+
+    return std::chrono::duration_cast<std::chrono::milliseconds>(timer_.top() - now).count();
 }
 
 epoll_registration::epoll_registration()

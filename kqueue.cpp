@@ -1,5 +1,6 @@
 #include "kqueue.hpp"
 
+#include <array>
 #include <cassert>
 #include <iostream>
 #include <sstream>
@@ -12,17 +13,16 @@ using namespace sysapi;
 epoll::epoll()
 {
     int r = kqueue();
-    
     if (r == -1)
         throw_error(errno, "kqueue()");
     
     assert(r >= 0);
     
-    fd_ = r;
+    fd_.reset(r);
 }
 
 epoll::epoll(epoll&& rhs)
-    : fd_(rhs.fd_)
+    : fd_(std::move(rhs.fd_))
 {}
 
 epoll& epoll::operator=(epoll rhs)
@@ -41,40 +41,48 @@ void epoll::run()
 {
     for (;;)
     {
-        int const ev_size = 16;
-        struct kevent ev[ev_size];
-        
-        int r = kevent(fd_, NULL, 0, ev, ev_size, NULL);
+        std::array<struct kevent, 16> ev;
+
+    again:
+        int timeout = run_timers_calculate_timeout();
+        struct timespec tmout = {timeout, 0};
+        int r = kevent(fd_.getfd(), NULL, 0, ev.data(), ev.size(), timeout == -1 ? nullptr : &tmout);
         
         if (r < 0)
         {
             int err = errno;
             
             if (err == EINTR)
-                continue;
+                goto again;
             
             throw_error(err, "kevent()");
         }
         
-        assert(r > 0);
-        assert(r <= ev_size);
+        if (r == 0)
+            goto again;
         
-        for (size_t i = 0; i < r; ++i)
+        assert(r > 0);
+        size_t num_events = static_cast<size_t>(r);
+        assert(num_events <= ev.size());
+        
+        for (auto i = ev.begin(); i != ev.begin() + num_events; ++i)
         {
             try
             {
-                struct kevent const& ee = ev[i];
-                if (ev[i].ident == -1) {
+                struct kevent const& ee = *i;
+                if (ee.ident == -1) {
                     continue;
                 }
                 static_cast<epoll_registration*>(ee.udata)->callback(ee);
-                if (event_deleted) {
-                    event_deleted = false;
-                    for (size_t j = i + 1; j < r; j++) {
-                        if (ev[j].ident == ev[i].ident) {
-                            ev[j].ident = -1;
+                if (!deleted_events.empty()) {
+                    for (auto k = deleted_events.begin(); k != deleted_events.end(); k++) {
+                        for (auto j = i + 1; j != ev.begin() + num_events; j++) {
+                            if (j->ident == k->first && j->filter == k->second) {
+                                j->ident = -1;
+                            }
                         }
                     }
+                    deleted_events = {};
                 }
             }
             catch (std::exception const& e)
@@ -89,55 +97,70 @@ void epoll::run()
     }
 }
 
-void epoll::add(int fd, int16_t events, epoll_registration* reg)
+timer& epoll::get_timer()
 {
-    struct kevent event;
-    EV_SET(&event, fd, events, EV_ADD, 0, 0, reg);
+    return timer_;
+}
+
+void epoll::add(int fd, int16_t event, epoll_registration* reg)
+{
+    struct kevent ev;
+    EV_SET(&ev, fd, event, EV_ADD, 0, 0, reg);
     
-    int r = kevent(fd_, &event, 1, NULL, 0, NULL);
+    int r = kevent(fd_.getfd(), &ev, 1, NULL, 0, NULL);
     if (r < 0)
         throw_error(errno, "kevent(EV_ADD)");
 }
 
-void epoll::modify(int fd, std::list<int16_t> events, epoll_registration* reg)
+void epoll::modify(int fd, int16_t event, epoll_registration* reg)
 {
-    for (auto it = events.begin(); it != events.end(); it++) {
-        struct kevent event;
-        EV_SET(&event, fd, *it, EV_DELETE, 0, 0, reg);
-        kevent(fd_, &event, 1, NULL, 0, NULL);
+    struct kevent ev;
+    EV_SET(&ev, fd, event, EV_ADD, 0, 0, reg);
         
-        EV_SET(&event, fd, *it, EV_ADD, 0, 0, reg);
-        
-        int r = kevent(fd_, &event, 1, NULL, 0, NULL);
-        if (r < 0)
-            throw_error(errno, "kevent() MOD");
-    }
-    event_deleted = true;
+    int r = kevent(fd_.getfd(), &ev, 1, NULL, 0, NULL);
+    if (r < 0)
+        throw_error(errno, "kevent() MOD");
+    
+    deleted_events.push_back({fd, event});
 }
 
-void epoll::remove(int fd, int16_t events)
+void epoll::remove(int fd, int16_t event)
 {
-    struct kevent event;
-    EV_SET(&event, fd, events, EV_DELETE, 0, 0, NULL);
+    struct kevent ev;
+    EV_SET(&ev, fd, event, EV_DELETE, 0, 0, NULL);
     
-    int r = kevent(fd_, &event, 1, NULL, 0, NULL);
+    int r = kevent(fd_.getfd(), &ev, 1, NULL, 0, NULL);
     if (r < 0)
         throw_error(errno, "kevent(EV_DELETE)");
+
+    deleted_events.push_back({fd, event});
+}
+
+int epoll::run_timers_calculate_timeout()
+{
+    if (timer_.empty())
+        return -1;
     
-    event_deleted = true;
+    timer::clock_t::time_point now = timer::clock_t::now();
+    timer_.notify(now);
+    
+    if (timer_.empty())
+        return -1;
+    
+    return std::chrono::duration_cast<std::chrono::milliseconds>(timer_.top() - now).count();
 }
 
 epoll_registration::epoll_registration()
-: ep()
-, fd(-1)
-, events()
+    : ep()
+    , fd(-1)
+    , events()
 {}
 
 epoll_registration::epoll_registration(epoll& ep, int fd, std::list<int16_t> events, callback_t callback)
-: ep(&ep)
-, fd(fd)
-, events(events)
-, callback(std::move(callback))
+    : ep(&ep)
+    , fd(fd)
+    , events(events)
+    , callback(std::move(callback))
 {
     for (auto it = events.begin(); it != events.end(); it++) {
         ep.add(fd, *it, this);
@@ -145,15 +168,15 @@ epoll_registration::epoll_registration(epoll& ep, int fd, std::list<int16_t> eve
 }
 
 epoll_registration::epoll_registration(epoll_registration&& rhs)
-: ep(rhs.ep)
-, fd(rhs.fd)
-, events(rhs.events)
-, callback(std::move(rhs.callback))
+    : ep(rhs.ep)
+    , fd(rhs.fd)
+    , events(rhs.events)
+    , callback(std::move(rhs.callback))
 {
     update();
     rhs.ep = nullptr;
     rhs.fd = -1;
-    rhs.events = events;
+    rhs.events = {};
     rhs.callback = callback_t();
 }
 
@@ -172,7 +195,12 @@ void epoll_registration::modify(std::list<int16_t> new_events)
 {
     assert(ep);
     
-    ep->modify(fd, new_events, this);
+    if (events == new_events)
+        return;
+    
+    for (auto it = events.begin(); it != events.end(); it++) {
+        ep->modify(fd, *it, this);
+    }
     events = new_events;
 }
 
@@ -207,5 +235,7 @@ epoll& epoll_registration::get_epoll() const
 void epoll_registration::update()
 {
     if (ep)
-        ep->modify(fd, events, this);
+        for (auto it = events.begin(); it != events.end(); it++) {
+            ep->modify(fd, *it, this);
+        }
 }
