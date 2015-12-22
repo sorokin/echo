@@ -7,15 +7,17 @@
 
 struct http_server
 {
-    struct connection
+    struct browser_connection
     {
-        connection(http_server* parent);
+        browser_connection(http_server* parent);
 
     private:
         http_server* parent;
-        client_socket browser;
-        std::experimental::optional<client_socket> target_server;
+        client_socket socket;
         timer_element timer;
+		size_t request_received;
+		char request_buffer[8192];
+		std::unique_ptr<client_socket> target;
     };
 
     http_server(epoll& ep);
@@ -29,7 +31,7 @@ private:
 private:
     epoll& ep;
     server_socket ss;
-    std::map<connection*, std::unique_ptr<connection>> connections;
+    std::map<browser_connection*, std::unique_ptr<browser_connection>> connections;
 };
 
 #endif // HTTP_SERVER_H

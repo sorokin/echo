@@ -12,6 +12,7 @@ add_library(common STATIC
     throw_error.cpp
     timer.cpp
     file_descriptor.cpp
+	http_server.cpp
 )
 
 add_executable(echo_server
