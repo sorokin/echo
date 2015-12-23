@@ -2,8 +2,9 @@
 #define HTTP_SERVER_H
 
 #include <map>
-#include <experimental/optional>
+#include <memory>
 #include "socket.h"
+
 
 struct http_server
 {
@@ -11,13 +12,16 @@ struct http_server
     {
         browser_connection(http_server* parent);
 
+        void new_request(char const* begin, char const* end);
+
     private:
         http_server* parent;
         client_socket socket;
         timer_element timer;
-		size_t request_received;
-		char request_buffer[8192];
-		std::unique_ptr<client_socket> target;
+        size_t request_received;
+        char request_buffer[4000];
+        char responce_buffer[4000];
+        std::unique_ptr<client_socket> target;
     };
 
     http_server(epoll& ep);
@@ -35,4 +39,3 @@ private:
 };
 
 #endif // HTTP_SERVER_H
-
