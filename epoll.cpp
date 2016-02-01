@@ -43,7 +43,7 @@ void epoll::run()
 {
     for (;;)
     {
-        std::array<epoll_event, 16> ev;
+        std::array<epoll_event, 100> ev;
 
     again:
         int timeout = run_timers_calculate_timeout();
