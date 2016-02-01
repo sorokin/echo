@@ -2,70 +2,54 @@
 
 #include <iostream>
 
-echo_tester::connection::connection(epoll &ep, ipv4_endpoint const& remote, uint32_t number)
-    : socket(client_socket::connect(ep, remote, [] {}))
+echo_tester::connection::connection(echo_tester* parent, ipv4_endpoint const& remote, uint32_t number)
+    : parent(parent)
+    , socket(client_socket::connect(parent->ep, remote, [this] {
+        std::cerr << "connection " << this->number << " was disconnected" << std::endl;
+        this->parent->connections.erase(this);
+    }))
+    , timer([this] { goto_new_state(); })
     , number(number)
     , sent(0)
     , received(0)
-    , no_disconnect(false)
-    , no_read(false)
-{}
+{
+    goto_new_state();
+}
 
 void echo_tester::connection::do_send()
 {
-    size_t size = rand() % 10000;
     size_t sent_total = 0;
 
-    std::cout << "sending " << size << " bytes over connection " << number;
     uint8_t buf[2000];
 
     for (;;)
     {
-        if (size == sent_total)
-        {
-            std::cout << std::endl;
-            break;
-        }
-        size_t to_send = std::min(size - sent_total, sizeof buf);
+        size_t to_send = rand() % 2000;
         fill_buffer(buf, to_send);
         size_t sent_now = socket.write_some(buf, to_send);
         sent += sent_now;
         sent_total += sent_now;
-        if (sent_now != to_send)
-        {
-            std::cout << " (" << sent_total << " bytes are sent)" << std::endl;
+        if ((rand() % 10000) < 4000)
             break;
-        }
     }
 }
 
-bool echo_tester::connection::do_receive()
+void echo_tester::connection::do_receive()
 {
     assert(sent >= received);
-    if (sent == received)
-        return true;
-
-    //std::cout << "receiving " << (sent - received) << " bytes over connection " << number << std::endl;
-
-    size_t size = rand() % (sent - received);
 
     uint8_t buf[2000];
 
-    while (size != 0)
+    for (;;)
     {
-        size_t to_receive = std::min(size, sizeof buf);
-        size_t bytes_received = socket.read_some(buf, to_receive);
+        size_t bytes_received = socket.read_some(buf, sizeof buf);
         if (bytes_received == 0)
-        {
-            std::cerr << "incomplete read (connection " << number << "), requested: " << to_receive << ", received: " << bytes_received << std::endl;
-            return false;
-        }
+            break;
         if (!check_buffer(buf, bytes_received))
-            return false;
-        size -= bytes_received;
+        {
+            std::cout << "received data mismatch" << std::endl;
+        }
     }
-
-    return true;
 }
 
 void echo_tester::connection::fill_buffer(uint8_t *buf, size_t size)
@@ -91,6 +75,58 @@ bool echo_tester::connection::check_buffer(uint8_t *buf, size_t size)
     return true;
 }
 
+void echo_tester::connection::goto_new_state()
+{
+    timer.restart(parent->ep.get_timer(), std::chrono::milliseconds(rand() % 450));
+    state = (state_t)(rand() % (unsigned)state_t::max);
+    //std::cout << "change connection " << number << " state to " << state_to_string(state) << std::endl;
+
+    switch (state)
+    {
+    case state_t::idle:
+        socket.set_on_read_write(client_socket::on_ready_t{}, client_socket::on_ready_t{});
+        break;
+    case state_t::sending_only:
+        socket.set_on_read_write(client_socket::on_ready_t{}, [this] {
+            do_send();
+        });
+        break;
+    case state_t::receiving_only:
+        socket.set_on_read_write([this] {
+            do_receive();
+        }, client_socket::on_ready_t{});
+        break;
+    case state_t::sending_receiving:
+        socket.set_on_read_write([this] {
+            do_receive();
+        }, [this] {
+            do_send();
+        });
+        break;
+    default:
+        assert(false);
+        break;
+    }
+}
+
+const char* echo_tester::connection::state_to_string(state_t state)
+{
+    switch (state)
+    {
+    case state_t::idle:
+        return "idle";
+    case state_t::sending_only:
+        return "sending_only";
+    case state_t::receiving_only:
+        return "receiving_only";
+    case state_t::sending_receiving:
+        return "sending_receiving";
+    default:
+        assert(false);
+        return "<invalid state>";
+    }
+}
+
 uint32_t echo_tester::connection::get_number() const
 {
     return number;
@@ -98,55 +134,39 @@ uint32_t echo_tester::connection::get_number() const
 
 echo_tester::echo_tester(epoll &ep, ipv4_endpoint remote_endpoint)
     : ep(ep)
+    , timer([this] { tick(); })
     , remote_endpoint(remote_endpoint)
     , next_connection_number(0)
-    , desired_number_of_connections(4)
+    , desired_number_of_connections(500)
     , number_of_permanent_connections(0)
-{}
+{
+    tick();
+}
 
-bool echo_tester::do_step()
+void echo_tester::tick()
 {
     size_t i = rand() % (desired_number_of_connections * 2);
     if (i < connections.size())
     {
-        auto& c = *connections[i];
-        size_t act = rand() % 112;
-        if (number_of_permanent_connections < 2 && act == 111)
-        {
-            ++number_of_permanent_connections;
-            c.no_disconnect = true;
-        }
-        else if (!c.no_read && act == 110)
-        {
-            c.no_read = true;
-        }
-        else if (!c.no_disconnect && act >= 100)
-        {
-            //std::cout << "destroy connection " << connections[i]->get_number() << std::endl;
-            std::swap(connections[i], connections.back());
-            connections.pop_back();
-        }
-        else if (!c.no_read && act >= 50)
-        {
-            if (!c.do_receive())
-                return false;
-        }
-        else
-        {
-            c.do_send();
-        }
+        auto it = std::next(connections.begin(), i);
+        std::cerr << "kill connection " << it->second->get_number() << std::endl;
+        connections.erase(it);
     }
     else
     {
-        std::unique_ptr<connection> cc(new connection(ep, remote_endpoint, next_connection_number++));
-        connections.push_back(std::move(cc));
+        uint32_t id = next_connection_number;
+        try
+        {
+            std::unique_ptr<connection> cc(new connection(this, this->remote_endpoint, id));
+            connection* pcc = cc.get();
+            connections.emplace(pcc, std::move(cc));
+            next_connection_number++;
+            std::cerr << "new connection " << id << std::endl;
+        }
+        catch (std::exception const& e)
+        {
+            std::cerr << "failed to create new connection: " << e.what() << std::endl;
+        }
     }
-    return true;
-}
-
-void echo_tester::do_n_steps(size_t n)
-{
-    for (size_t i = 0; i != n; ++i)
-        if (!do_step())
-            break;
+    timer.restart(this->ep.get_timer(), std::chrono::milliseconds(rand() % 40));
 }
