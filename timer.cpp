@@ -96,7 +96,8 @@ void timer_element::set_callback(timer_element::callback_t callback)
 
 void timer_element::restart(timer& t, clock_t::duration interval)
 {
-    this->t->remove(this);
+    if (this->t)
+        this->t->remove(this);
     this->t = &t;
     this->wakeup = clock_t::now() + interval;
     this->t->add(this);
