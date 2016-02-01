@@ -53,3 +53,9 @@ add_executable(http_server
 )
 
 target_link_libraries(http_server common http pthread)
+
+add_executable(resolve
+    resolve_main.cpp
+)
+
+target_link_libraries(resolve common)

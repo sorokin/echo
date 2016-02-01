@@ -2,7 +2,11 @@
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netdb.h>
 
+#include <cassert>
 #include <sstream>
 #include <stdexcept>
 
@@ -40,6 +44,36 @@ ipv4_address ipv4_address::any()
     return ipv4_address{INADDR_ANY};
 }
 
+std::vector<ipv4_address> ipv4_address::resolve(std::string const& hostname)
+{
+    addrinfo hints{};
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+
+    addrinfo* list_head;
+    int res = getaddrinfo(hostname.c_str(), nullptr, &hints, &list_head);
+    if (res != 0)
+    {
+        std::stringstream ss;
+        ss << "can not resolve server '" << hostname << "': " << gai_strerror(res);
+        throw std::runtime_error(ss.str());
+    }
+
+    std::vector<ipv4_address> r;
+
+    for (addrinfo* i = list_head; i != nullptr; i = i->ai_next)
+    {
+        assert(i->ai_family == AF_INET);
+        assert(i->ai_socktype == SOCK_STREAM);
+        r.push_back(ipv4_address{reinterpret_cast<sockaddr_in const*>(i->ai_addr)->sin_addr.s_addr});
+    }
+
+    // TODO: move to destructor
+    freeaddrinfo(list_head);
+
+    return r;
+}
+
 ipv4_endpoint::ipv4_endpoint()
     : port_net{}
     , addr_net{}
@@ -72,6 +106,13 @@ ipv4_endpoint::ipv4_endpoint(uint16_t port_net, uint32_t addr_net)
     , addr_net(addr_net)
 {}
 
+std::ostream& operator<<(std::ostream& os, ipv4_address const& addr)
+{
+    in_addr tmp{};
+    tmp.s_addr = addr.addr_net;
+    os << inet_ntoa(tmp);
+    return os;
+}
 
 std::ostream& operator<<(std::ostream& os, ipv4_endpoint const& endpoint)
 {
