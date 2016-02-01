@@ -66,7 +66,9 @@ std::ostream& operator<<(std::ostream& os, http_version version)
 
 std::ostream& operator<<(std::ostream& os, http_status_line const& status_line)
 {
-    os << status_line.version << status_line.status_code << status_line.reason_phrase;
+    os << status_line.version << ' '
+       << status_line.status_code << ' '
+       << status_line.reason_phrase;
     return os;
 }
 

@@ -19,7 +19,7 @@ http_server::browser_connection::browser_connection(http_server* parent)
     , socket(parent->ss.accept([this] {
         this->parent->connections.erase(this);
     }, [this] {
-        size_t received_now = socket.read_some(request_buffer, sizeof request_buffer - request_received);
+        size_t received_now = socket.read_some(request_buffer + request_received, sizeof request_buffer - request_received);
         if (received_now == 0)
             return;
 
@@ -28,7 +28,8 @@ http_server::browser_connection::browser_connection(http_server* parent)
                              std::begin(crlf_crlf),
                              std::end(crlf_crlf));
 
-        if (i == request_buffer + request_received + received_now)
+        request_received += received_now;
+        if (i == request_buffer + request_received)
             return;
 
         socket.set_on_read(client_socket::on_ready_t{});
