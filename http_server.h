@@ -8,9 +8,9 @@
 
 struct http_server
 {
-    struct browser_connection
+    struct inbound_connection
     {
-        browser_connection(http_server* parent);
+        inbound_connection(http_server* parent);
 
     private:
         void new_request(char const* begin, char const* end);
@@ -41,7 +41,7 @@ private:
 private:
     epoll& ep;
     server_socket ss;
-    std::map<browser_connection*, std::unique_ptr<browser_connection>> connections;
+    std::map<inbound_connection*, std::unique_ptr<inbound_connection>> connections;
 };
 
 #endif // HTTP_SERVER_H

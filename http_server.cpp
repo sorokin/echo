@@ -14,7 +14,7 @@ namespace
     char crlf_crlf[4] = {'\r', '\n', '\r', '\n'};
 }
 
-http_server::browser_connection::browser_connection(http_server* parent)
+http_server::inbound_connection::inbound_connection(http_server* parent)
     : parent(parent)
     , socket(parent->ss.accept([this] {
         this->parent->connections.erase(this);
@@ -45,7 +45,7 @@ http_server::browser_connection::browser_connection(http_server* parent)
     , response_size(0)
 {}
 
-void http_server::browser_connection::new_request(char const* begin, char const* end)
+void http_server::inbound_connection::new_request(char const* begin, char const* end)
 {
     sub_string text(begin, end);
 
@@ -95,7 +95,7 @@ void http_server::browser_connection::new_request(char const* begin, char const*
     try_write();
 }
 
-void http_server::browser_connection::try_write()
+void http_server::inbound_connection::try_write()
 {
     response_sent += socket.write_some(response_buffer, response_size - response_sent);
 
@@ -105,7 +105,7 @@ void http_server::browser_connection::try_write()
         parent->connections.erase(this);
 }
 
-void http_server::browser_connection::send_header(http_status_code status_code, sub_string reason_phrase)
+void http_server::inbound_connection::send_header(http_status_code status_code, sub_string reason_phrase)
 {
     http_response response;
     response.status_line.version = http_version::HTTP_10;
@@ -137,7 +137,7 @@ ipv4_endpoint http_server::local_endpoint() const
 
 void http_server::on_new_connection()
 {
-    std::unique_ptr<browser_connection> cc(new browser_connection(this));
-    browser_connection* pcc = cc.get();
+    std::unique_ptr<inbound_connection> cc(new inbound_connection(this));
+    inbound_connection* pcc = cc.get();
     connections.emplace(pcc, std::move(cc));
 }
