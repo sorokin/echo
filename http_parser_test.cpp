@@ -182,8 +182,8 @@ GTEST_TEST(http_request_parsing, smoke02)
 TEST(http_status_code_parsing, simple01)
 {
     sub_string str = sub_string::literal("304");
-    unsigned status_code = parse_status_code(str);
-    EXPECT_EQ(status_code, 304);
+    http_status_code status_code = parse_status_code(str);
+    EXPECT_EQ(status_code, http_status_code::not_modified);
     EXPECT_TRUE(str.empty());
 }
 
@@ -191,7 +191,7 @@ TEST(http_status_line_parsing, simple01)
 {
     sub_string str = sub_string::literal("HTTP/1.1 200 OK\r\n");
     http_status_line status_line = parse_status_line(str);
-    EXPECT_EQ(status_line.status_code, 200);
+    EXPECT_EQ(status_line.status_code, http_status_code::ok);
     EXPECT_TRUE(str.empty());
 }
 

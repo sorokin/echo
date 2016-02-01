@@ -48,7 +48,20 @@ http_server::browser_connection::browser_connection(http_server* parent)
 void http_server::browser_connection::new_request(char const* begin, char const* end)
 {
     sub_string text(begin, end);
-    http_request request = parse_request(text);
+
+    http_request request;
+    try
+    {
+        request = parse_request(text);
+    }
+    catch (http_parsing_error const& e)
+    {
+        std::stringstream ss;
+        ss << "Bad Request: " << e.what();
+        std::string rp = ss.str();
+        send_header(http_status_code::bad_request, sub_string(rp.data(), rp.data() + rp.size()));
+        return;
+    }
 
     if (request.request_line.method != http_request_method::GET
      && request.request_line.method != http_request_method::HEAD)
@@ -61,38 +74,25 @@ void http_server::browser_connection::new_request(char const* begin, char const*
         // server. The methods GET and HEAD MUST be supported by all general
         // purpose servers.
 
-        http_response response;
-        response.status_line.version = http_version::HTTP_10;
-        response.status_line.status_code = 501;
-        response.status_line.reason_phrase = sub_string::literal("Not Implemented");
-
-        std::stringstream ss;
-        ss << response;
-        std::string const& str = ss.str();
-        memcpy(response_buffer, str.data(), str.size());
-        response_size = str.size();
-        try_write();
-    }
-    else
-    {
-        http_response response;
-        response.status_line.version = http_version::HTTP_10;
-        response.status_line.status_code = 200;
-        response.status_line.reason_phrase = sub_string::literal("OK");
-
-        std::stringstream ss;
-        ss << response;
-
-        if (request.request_line.method == http_request_method::GET)
-            ss << "Hello, world!\n";
-
-        std::string const& str = ss.str();
-        memcpy(response_buffer, str.data(), str.size());
-        response_size = str.size();
-        try_write();
+        send_header(http_status_code::not_implemented, sub_string::literal("Not Implemented"));
+        return;
     }
 
-    //target.reset(client_socket::connect(parent->ep, ))
+    http_response response;
+    response.status_line.version = http_version::HTTP_10;
+    response.status_line.status_code = http_status_code::ok;
+    response.status_line.reason_phrase = sub_string::literal("OK");
+
+    std::stringstream ss;
+    ss << response;
+
+    if (request.request_line.method == http_request_method::GET)
+        ss << "Hello, world!\n";
+
+    std::string const& str = ss.str();
+    memcpy(response_buffer, str.data(), str.size());
+    response_size = str.size();
+    try_write();
 }
 
 void http_server::browser_connection::try_write()
@@ -105,6 +105,20 @@ void http_server::browser_connection::try_write()
         parent->connections.erase(this);
 }
 
+void http_server::browser_connection::send_header(http_status_code status_code, sub_string reason_phrase)
+{
+    http_response response;
+    response.status_line.version = http_version::HTTP_10;
+    response.status_line.status_code = status_code;
+    response.status_line.reason_phrase = reason_phrase;
+
+    std::stringstream ss;
+    ss << response;
+    std::string const& str = ss.str();
+    memcpy(response_buffer, str.data(), str.size());
+    response_size = str.size();
+    try_write();
+}
 
 http_server::http_server(sysapi::epoll &ep)
     : ep(ep)

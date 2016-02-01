@@ -31,10 +31,22 @@ struct http_request_line
     http_version version;
 };
 
+enum class http_status_code : unsigned
+{
+    ok                      = 200,
+
+    not_modified            = 304,
+
+    bad_request             = 400,
+
+    internal_server_error   = 500,
+    not_implemented         = 501,
+};
+
 struct http_status_line
 {
     http_version version;
-    unsigned status_code;
+    http_status_code status_code;
     sub_string reason_phrase;
 };
 

@@ -136,7 +136,7 @@ http_request_line parse_request_line(sub_string& text)
     return result;
 }
 
-unsigned parse_status_code(sub_string& text)
+http_status_code parse_status_code(sub_string& text)
 {
     if (text.size() < 3)
         throw http_parsing_error("invalid status code");
@@ -152,7 +152,7 @@ unsigned parse_status_code(sub_string& text)
 
     text.advance(3);
 
-    return result;
+    return static_cast<http_status_code>(result);
 }
 
 http_status_line parse_status_line(sub_string& text)

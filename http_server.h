@@ -4,7 +4,7 @@
 #include <map>
 #include <memory>
 #include "socket.h"
-
+#include "http_common.h"
 
 struct http_server
 {
@@ -12,9 +12,10 @@ struct http_server
     {
         browser_connection(http_server* parent);
 
+    private:
         void new_request(char const* begin, char const* end);
-
         void try_write();
+        void send_header(http_status_code status_code, sub_string reason_phrase);
 
     private:
         http_server* parent;
