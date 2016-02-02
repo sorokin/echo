@@ -62,7 +62,7 @@ void http_server::inbound_connection::try_read()
         if (request_received == sizeof request_buffer)
         {
             socket.set_on_read(client_socket::on_ready_t{});
-            send_header(http_status_code::bad_request, sub_string::literal("Bad Request: request is too large"));
+            send_header(http_status_code::bad_request, "Bad Request: request is too large");
         }
 
         return;
@@ -76,12 +76,13 @@ void http_server::inbound_connection::try_read()
     }
     catch (http_error const& e)
     {
-        std::string const& rp = e.get_reason_phrase();
-        send_header(e.get_status_code(), sub_string(rp.data(), rp.data() + rp.size()));
+        send_header(e.get_status_code(), e.get_reason_phrase());
     }
     catch (std::exception const& e)
     {
-        send_header(http_status_code::internal_server_error, sub_string::literal("Internal Server Error"));
+        // TODO: if something was already written to socket,
+        // we should just drop the connection
+        send_header(http_status_code::internal_server_error, e.what());
     }
 }
 
@@ -101,9 +102,7 @@ void http_server::inbound_connection::new_request(char const* begin, char const*
     }
     catch (http_parsing_error const& e)
     {
-        std::stringstream ss;
-        ss << "Bad Request: " << e.what();
-        throw http_error(http_status_code::bad_request, ss.str());
+        throw http_error(http_status_code::bad_request, e.what());
     }
 
     if (request.request_line.method != http_request_method::GET
@@ -119,6 +118,10 @@ void http_server::inbound_connection::new_request(char const* begin, char const*
 
         throw http_error(http_status_code::not_implemented, "Not Implemented");
     }
+
+    auto i = request.headers.find("Host");
+    if (i == request.headers.end())
+        throw http_error(http_status_code::bad_request, "");
 
     http_response response;
     response.status_line.version = http_version::HTTP_10;
@@ -156,12 +159,19 @@ void http_server::inbound_connection::try_write()
         drop();
 }
 
-void http_server::inbound_connection::send_header(http_status_code status_code, sub_string reason_phrase)
+void http_server::inbound_connection::send_header(http_status_code status_code, std::string const& message)
 {
+    std::string reason_phrase = status_code_as_string(status_code);
+    if (!message.empty())
+    {
+        reason_phrase += ": ";
+        reason_phrase += message;
+    }
+
     http_response response;
     response.status_line.version = http_version::HTTP_10;
     response.status_line.status_code = status_code;
-    response.status_line.reason_phrase = reason_phrase;
+    response.status_line.reason_phrase = sub_string(reason_phrase);
 
     std::stringstream ss;
     ss << response;

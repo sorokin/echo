@@ -7,6 +7,7 @@ struct sub_string
 {
     sub_string();
     sub_string(char const* begin, char const* end);
+    sub_string(std::string const&);
 
     template <size_t N>
     static sub_string literal(char const (&)[N]);

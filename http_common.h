@@ -62,4 +62,6 @@ struct http_response
     std::map<std::string, std::vector<std::string> > headers;
 };
 
+char const* status_code_as_string(http_status_code);
+
 #endif

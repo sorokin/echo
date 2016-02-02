@@ -12,6 +12,10 @@ sub_string::sub_string(char const* begin, char const* end)
     , end_(end)
 {}
 
+sub_string::sub_string(std::string const& str)
+    : sub_string(str.data(), str.data() + str.size())
+{}
+
 void sub_string::advance(size_t i)
 {
     assert(i <= size());

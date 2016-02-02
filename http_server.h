@@ -30,7 +30,7 @@ struct http_server
     private:
         void new_request(char const* begin, char const* end);
         void try_write();
-        void send_header(http_status_code status_code, sub_string reason_phrase);
+        void send_header(http_status_code status_code, std::string const& message);
 
     private:
         http_server* parent;

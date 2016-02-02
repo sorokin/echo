@@ -15,6 +15,7 @@ add_subdirectory(gtest)
 add_library(http STATIC
     http_parser.cpp
     http_printer.cpp
+    http_common.cpp
     sub_string.cpp)
 
 add_library(common STATIC
