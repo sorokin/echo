@@ -8,9 +8,24 @@
 
 struct http_server
 {
+    struct http_error : std::runtime_error
+    {
+        http_error(http_status_code status_code, std::string reason_phrase);
+
+        http_status_code get_status_code() const;
+        std::string const& get_reason_phrase() const;
+
+    private:
+        http_status_code status_code;
+        std::string reason_phrase;
+    };
+
     struct inbound_connection
     {
         inbound_connection(http_server* parent);
+
+        void try_read();
+        void drop();
 
     private:
         void new_request(char const* begin, char const* end);

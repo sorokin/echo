@@ -14,28 +14,28 @@ namespace
     char crlf_crlf[4] = {'\r', '\n', '\r', '\n'};
 }
 
+http_server::http_error::http_error(http_status_code status_code, std::string reason_phrase)
+    : runtime_error(reason_phrase)
+    , status_code(status_code)
+    , reason_phrase(std::move(reason_phrase))
+{}
+
+http_status_code http_server::http_error::get_status_code() const
+{
+    return status_code;
+}
+
+std::string const& http_server::http_error::get_reason_phrase() const
+{
+    return reason_phrase;
+}
+
 http_server::inbound_connection::inbound_connection(http_server* parent)
     : parent(parent)
     , socket(parent->ss.accept([this] {
         this->parent->connections.erase(this);
     }, [this] {
-        size_t received_now = socket.read_some(request_buffer + request_received, sizeof request_buffer - request_received);
-        if (received_now == 0)
-            return;
-
-        auto i = std::search(request_buffer + request_received - 3,
-                             request_buffer + request_received + received_now,
-                             std::begin(crlf_crlf),
-                             std::end(crlf_crlf));
-
-        request_received += received_now;
-        if (i == request_buffer + request_received)
-            return;
-
-        socket.set_on_read(client_socket::on_ready_t{});
-
-        new_request(request_buffer, i + sizeof crlf_crlf);
-
+        try_read();
     }, client_socket::on_ready_t{}))
     , timer(parent->ep.get_timer(), timeout, [this] {
         this->parent->connections.erase(this);
@@ -44,6 +44,51 @@ http_server::inbound_connection::inbound_connection(http_server* parent)
     , response_sent(0)
     , response_size(0)
 {}
+
+void http_server::inbound_connection::try_read()
+{
+    size_t received_now = socket.read_some(request_buffer + request_received, sizeof request_buffer - request_received);
+    if (received_now == 0)
+        return;
+
+    auto i = std::search(request_buffer + request_received - 3,
+                         request_buffer + request_received + received_now,
+                         std::begin(crlf_crlf),
+                         std::end(crlf_crlf));
+
+    request_received += received_now;
+    if (i == request_buffer + request_received)
+    {
+        if (request_received == sizeof request_buffer)
+        {
+            socket.set_on_read(client_socket::on_ready_t{});
+            send_header(http_status_code::bad_request, sub_string::literal("Bad Request: request is too large"));
+        }
+
+        return;
+    }
+
+    socket.set_on_read(client_socket::on_ready_t{});
+
+    try
+    {
+        new_request(request_buffer, i + sizeof crlf_crlf);
+    }
+    catch (http_error const& e)
+    {
+        std::string const& rp = e.get_reason_phrase();
+        send_header(e.get_status_code(), sub_string(rp.data(), rp.data() + rp.size()));
+    }
+    catch (std::exception const& e)
+    {
+        send_header(http_status_code::internal_server_error, sub_string::literal("Internal Server Error"));
+    }
+}
+
+void http_server::inbound_connection::drop()
+{
+    parent->connections.erase(this);
+}
 
 void http_server::inbound_connection::new_request(char const* begin, char const* end)
 {
@@ -58,9 +103,7 @@ void http_server::inbound_connection::new_request(char const* begin, char const*
     {
         std::stringstream ss;
         ss << "Bad Request: " << e.what();
-        std::string rp = ss.str();
-        send_header(http_status_code::bad_request, sub_string(rp.data(), rp.data() + rp.size()));
-        return;
+        throw http_error(http_status_code::bad_request, ss.str());
     }
 
     if (request.request_line.method != http_request_method::GET
@@ -74,8 +117,7 @@ void http_server::inbound_connection::new_request(char const* begin, char const*
         // server. The methods GET and HEAD MUST be supported by all general
         // purpose servers.
 
-        send_header(http_status_code::not_implemented, sub_string::literal("Not Implemented"));
-        return;
+        throw http_error(http_status_code::not_implemented, "Not Implemented");
     }
 
     http_response response;
@@ -87,7 +129,16 @@ void http_server::inbound_connection::new_request(char const* begin, char const*
     ss << response;
 
     if (request.request_line.method == http_request_method::GET)
-        ss << "Hello, world!\n";
+    {
+        auto i = request.headers.find("Host");
+        if (i != request.headers.end())
+        {
+            for (ipv4_address const& addr : ipv4_address::resolve(i->second[0]))
+            {
+                ss << addr << std::endl;
+            }
+        }
+    }
 
     std::string const& str = ss.str();
     memcpy(response_buffer, str.data(), str.size());
@@ -102,7 +153,7 @@ void http_server::inbound_connection::try_write()
     if (response_sent != response_size)
         socket.set_on_write([this] { try_write(); });
     else
-        parent->connections.erase(this);
+        drop();
 }
 
 void http_server::inbound_connection::send_header(http_status_code status_code, sub_string reason_phrase)
