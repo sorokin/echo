@@ -1,5 +1,4 @@
 #include "http_parser.h"
-#include <cassert>
 #include <algorithm>
 
 bool http_is_whitespace(char c)

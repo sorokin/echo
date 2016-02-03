@@ -26,10 +26,10 @@ struct echo_tester
         void do_receive();
 
     private:
-        void fill_buffer(uint8_t* buf, size_t size);
+        void fill_buffer(uint8_t* buf, size_t size) const;
         bool check_buffer(uint8_t* buf, size_t size);
         void goto_new_state();
-        char const* state_to_string(state_t);
+        static char const* state_to_string(state_t);
 
     public:
         uint32_t get_number() const;
