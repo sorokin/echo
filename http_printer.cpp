@@ -67,7 +67,7 @@ std::ostream& operator<<(std::ostream& os, http_version version)
 std::ostream& operator<<(std::ostream& os, http_status_line const& status_line)
 {
     os << status_line.version << ' '
-       << (unsigned)status_line.status_code << ' '
+       << static_cast<unsigned>(status_line.status_code) << ' '
        << status_line.reason_phrase;
     return os;
 }

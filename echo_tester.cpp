@@ -52,7 +52,7 @@ void echo_tester::connection::do_receive()
     }
 }
 
-void echo_tester::connection::fill_buffer(uint8_t *buf, size_t size)
+void echo_tester::connection::fill_buffer(uint8_t *buf, size_t size) const
 {
     uint8_t val = (uint8_t)sent;
     for (size_t i = 0; i != size; ++i)

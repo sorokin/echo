@@ -41,8 +41,8 @@ http_server::inbound_connection::inbound_connection(http_server* parent)
         this->parent->connections.erase(this);
     })
     , request_received(0)
-    , response_sent(0)
     , response_size(0)
+    , response_sent(0)
 {}
 
 void http_server::inbound_connection::try_read()
