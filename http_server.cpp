@@ -121,7 +121,12 @@ void http_server::inbound_connection::new_request(char const* begin, char const*
 
     auto i = request.headers.find("Host");
     if (i == request.headers.end())
-        throw http_error(http_status_code::bad_request, "");
+        throw http_error(http_status_code::bad_request, "host header is missing");
+
+    if (i->second.size() != 1)
+        throw http_error(http_status_code::bad_request, "multiple host headers");
+
+    std::string const& host = i->second[0];
 
     http_response response;
     response.status_line.version = http_version::HTTP_10;
@@ -133,13 +138,9 @@ void http_server::inbound_connection::new_request(char const* begin, char const*
 
     if (request.request_line.method == http_request_method::GET)
     {
-        auto i = request.headers.find("Host");
-        if (i != request.headers.end())
+        for (ipv4_address const& addr : ipv4_address::resolve(host))
         {
-            for (ipv4_address const& addr : ipv4_address::resolve(i->second[0]))
-            {
-                ss << addr << std::endl;
-            }
+            ss << addr << std::endl;
         }
     }
 
