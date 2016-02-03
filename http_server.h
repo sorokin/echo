@@ -6,6 +6,28 @@
 #include "socket.h"
 #include "http_common.h"
 
+struct send_buffer
+{
+    send_buffer(const send_buffer& other) = delete;
+    send_buffer& operator=(const send_buffer& other) = delete;
+
+    send_buffer(client_socket& socket);
+    ~send_buffer();
+
+    void append(void const* data, size_t size);
+    void set_on_empty(client_socket::on_ready_t on_empty);
+
+private:
+    void append_to_buffer(void const* data, size_t size);
+    void push_to_socket();
+
+private:
+    client_socket& socket;
+    client_socket::on_ready_t on_empty;
+    std::vector<char> buf;
+    size_t sent;
+};
+
 struct http_server
 {
     struct http_error : std::runtime_error
@@ -20,6 +42,16 @@ struct http_server
         std::string reason_phrase;
     };
 
+    struct outbound_connection
+    {
+        outbound_connection(http_server* parent, std::string const& host, client_socket::on_ready_t on_disconnect);
+        void send_request(http_request const& request);
+
+    private:
+        client_socket socket;
+        send_buffer send_buf;
+    };
+
     struct inbound_connection
     {
         inbound_connection(http_server* parent);
@@ -29,7 +61,6 @@ struct http_server
 
     private:
         void new_request(char const* begin, char const* end);
-        void try_write();
         void send_header(http_status_code status_code, std::string const& message);
 
     private:
@@ -38,11 +69,9 @@ struct http_server
         timer_element timer;
         size_t request_received;
         char request_buffer[4000];
-        size_t response_size;
-        size_t response_sent;
-        char response_buffer[4000];
+        send_buffer send_buf;
 
-        std::unique_ptr<client_socket> target;
+        std::unique_ptr<outbound_connection> target;
     };
 
     http_server(epoll& ep);

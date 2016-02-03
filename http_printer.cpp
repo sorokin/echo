@@ -42,6 +42,17 @@ namespace
             return "HTTP/1.0";
         }
     }
+
+    void dump_headers(std::ostream& os, std::map<std::string, std::vector<std::string> > const& headers)
+    {
+        for (auto const& p : headers)
+        {
+            for (auto const& v : p.second)
+            {
+                os << p.first << ": " << v << '\n';
+            }
+        }
+    }
 }
 
 std::ostream& operator<<(std::ostream& os, sub_string str)
@@ -76,15 +87,24 @@ std::ostream& operator<<(std::ostream& os, http_status_line const& status_line)
 std::ostream& operator<<(std::ostream& os, http_response const& response)
 {
     os << response.status_line << '\n';
+    dump_headers(os, response.headers);
+    os << '\n';
 
-    for (auto const& p : response.headers)
-    {
-        for (auto const& v : p.second)
-        {
-            os << p.first << ": " << v << '\n';
-        }
-    }
+    return os;
+}
 
+std::ostream& operator<<(std::ostream& os, http_request_line const& request_line)
+{
+    os << request_line.method << ' '
+       << request_line.uri << ' '
+       << request_line.version;
+    return os;
+}
+
+std::ostream& operator<<(std::ostream& os, http_request const& request)
+{
+    os << request.request_line;
+    dump_headers(os, request.headers);
     os << '\n';
 
     return os;

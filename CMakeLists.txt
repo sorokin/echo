@@ -50,6 +50,7 @@ target_link_libraries(http_parser_test http gtest pthread)
 
 add_executable(http_server
     http_server.cpp
+	http_server.h
     main_http_server.cpp
 )
 
